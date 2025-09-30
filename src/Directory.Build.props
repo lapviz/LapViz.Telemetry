@@ -1,0 +1,65 @@
+﻿<Project>
+  <PropertyGroup Label="Settings">
+    <Deterministic>true</Deterministic>
+    <LangVersion>12</LangVersion>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>embedded</DebugType>
+    <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    <MinVerMinimumMajorMinor>1.0</MinVerMinimumMajorMinor>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerVerbosity>detailed</MinVerVerbosity>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);SA1633;SA1600;CS1591;CS1570;SA1623;SA1503;SA1413</NoWarn>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)\..\resources\lapviz.telemetry.snk</AssemblyOriginatorKeyFile>
+    <PublicKey>0024000004800000940000000602000000240000525341310004000001000100f5999d40e81c8b666320544f5ba5381fe8afce38f61307880b34e11ec1513ebb77ec1caf5f47724a52b701cbed640bcff41a27a802a214b267c2aaf3ca4e834765e5b9d90c911d3294d460f92e55ced5fced17563ca4ac7e716f5ece562a9322d5d5fa5ccd2dd61c6a44424807806660750f09f4cfeaad1aa402a53c0dc47bd3</PublicKey>
+  </PropertyGroup>
+  <PropertyGroup Label="Deterministic Build" Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup Condition="$(IsPackable)">
+    <None Include="$(MSBuildThisFileDirectory)../resources/nuget/logo.png">
+      <Pack>true</Pack>
+      <PackagePath>\</PackagePath>
+      <Link>Properties/Package/Logo.png</Link>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)../resources/nuget/$(AssemblyName).md">
+      <Pack>true</Pack>
+      <PackagePath>\README.md</PackagePath>
+      <Link>Properties/Package/README.md</Link>
+    </None>
+  </ItemGroup>
+  <PropertyGroup Label="Package Information">
+    <Description>A .NET library that provides the core building blocks for motorsport telemetry and timing.</Description>
+    <Copyright>Mengal SRL</Copyright>
+    <Authors>Pierre Mengal</Authors>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/lapviz/lapviz.telemetry</RepositoryUrl>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    <PackageProjectUrl>https://github.com/lapviz/lapviz.telemetry</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReleaseNotes>https://github.com/lapviz/lapviz.telemetry/releases</PackageReleaseNotes>
+  </PropertyGroup>
+  <PropertyGroup Label="Source Link">
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)/stylecop.json" Link="Properties/stylecop.json"/>
+  </ItemGroup>
+  <!-- Allow folks to build with minimal dependencies (though they will need to provide their own Version data) -->
+  <ItemGroup Label="Build Tools Package References" Condition="'$(UseBuildTimeTools)' != 'false'">
+    <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <PackageReference Include="StyleCop.Analyzers" Version="1.1.118">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Roslynator.Analyzers" Version="4.12.9">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

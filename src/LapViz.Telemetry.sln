@@ -1,0 +1,63 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36511.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Build", "Build", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		..\build.cake = ..\build.cake
+		..\dotnet-tools.json = ..\dotnet-tools.json
+		..\global.json = ..\global.json
+		stylecop.json = stylecop.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "GitHub", "GitHub", "{1622A467-0573-430E-84A5-BEBA95118531}"
+	ProjectSection(SolutionItems) = preProject
+		..\.github\workflows\ci.yaml = ..\.github\workflows\ci.yaml
+		..\.github\workflows\publish.yaml = ..\.github\workflows\publish.yaml
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LapViz.Telemetry", "LapViz.Telemetry\LapViz.Telemetry.csproj", "{98710B9F-3207-CA30-8D28-86F140BB5995}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LapViz.Telemetry.Tests", "LapViz.Telemetry.Tests\LapViz.Telemetry.Tests.csproj", "{3FC4717C-D972-8273-3695-CF7F9764F093}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LapViz.LiveTiming", "LapViz.LiveTiming\LapViz.LiveTiming.csproj", "{FD3D358F-7EC4-6FB8-DE0E-49A2703DB3AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LapViz.Telemetry.CLI", "..\samples\LapViz.Telemetry.CLI\LapViz.Telemetry.CLI.csproj", "{4E04708D-368D-A5E5-20E9-0FE80BA95FE1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{98710B9F-3207-CA30-8D28-86F140BB5995}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{98710B9F-3207-CA30-8D28-86F140BB5995}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{98710B9F-3207-CA30-8D28-86F140BB5995}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{98710B9F-3207-CA30-8D28-86F140BB5995}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3FC4717C-D972-8273-3695-CF7F9764F093}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FC4717C-D972-8273-3695-CF7F9764F093}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3FC4717C-D972-8273-3695-CF7F9764F093}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3FC4717C-D972-8273-3695-CF7F9764F093}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FD3D358F-7EC4-6FB8-DE0E-49A2703DB3AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD3D358F-7EC4-6FB8-DE0E-49A2703DB3AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD3D358F-7EC4-6FB8-DE0E-49A2703DB3AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD3D358F-7EC4-6FB8-DE0E-49A2703DB3AB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4E04708D-368D-A5E5-20E9-0FE80BA95FE1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4E04708D-368D-A5E5-20E9-0FE80BA95FE1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4E04708D-368D-A5E5-20E9-0FE80BA95FE1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4E04708D-368D-A5E5-20E9-0FE80BA95FE1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1622A467-0573-430E-84A5-BEBA95118531} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {63969406-14BB-4F01-9696-63AFA4B6122A}
+	EndGlobalSection
+EndGlobal

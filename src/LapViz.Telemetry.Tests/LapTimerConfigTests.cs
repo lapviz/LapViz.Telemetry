@@ -1,0 +1,209 @@
+using LapViz.Telemetry.Services;
+
+namespace LapViz.Telemetry.Tests.Services;
+
+public class LapTimerConfigTests
+{
+    private static bool IsGuid(string s) => Guid.TryParse(s, out _);
+
+    public sealed class Defaults
+    {
+        [Fact]
+        public void Has_Safe_Defaults()
+        {
+            var cfg = new LapTimerConfig();
+
+            Assert.Equal(LapTimerConfig.DefaultMaxTelemetryDataRetention, cfg.MaxTelemetryDataRetention);
+            Assert.Equal(LapTimerConfig.DefaultMinimumTimeBetweenEvents, cfg.MinimumTimeBetweenEvents);
+            Assert.Equal(LapTimerConfig.DefaultSessionTimeout, cfg.SessionTimeout);
+            Assert.Equal(LapTimerConfig.DefaultTrackPosition, cfg.TrackPosition);
+            Assert.Equal(LapTimerConfig.DefaultAutoStartDetection, cfg.AutoStartDetection);
+
+            Assert.True(IsGuid(cfg.DeviceId));
+            Assert.Null(cfg.UserId);
+
+            Assert.Equal((int)LapTimerConfig.DefaultMinimumTimeBetweenEvents.TotalSeconds, cfg.MinimumEventSeparationSeconds);
+        }
+    }
+
+    public sealed class MaxTelemetryDataRetention
+    {
+        [Theory]
+        [InlineData(2)]
+        [InlineData(5)]
+        [InlineData(42)]
+        public void Accepts_Values_GreaterOrEqual_2(int value)
+        {
+            var cfg = new LapTimerConfig { MaxTelemetryDataRetention = value };
+            Assert.Equal(value, cfg.MaxTelemetryDataRetention);
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(0)]
+        [InlineData(-10)]
+        public void Throws_When_LessThan2(int value)
+        {
+            var cfg = new LapTimerConfig();
+            var ex = Assert.Throws<ArgumentOutOfRangeException>(() => cfg.MaxTelemetryDataRetention = value);
+            Assert.Equal("MaxTelemetryDataRetention", ex.ParamName);
+        }
+    }
+
+    public sealed class MinimumTimeBetweenEvents
+    {
+        [Fact]
+        public void Accepts_Zero()
+        {
+            var cfg = new LapTimerConfig { MinimumTimeBetweenEvents = TimeSpan.Zero };
+            Assert.Equal(TimeSpan.Zero, cfg.MinimumTimeBetweenEvents);
+            Assert.Equal(0, cfg.MinimumEventSeparationSeconds);
+        }
+
+        [Fact]
+        public void Accepts_Positive_Value_And_RoundsDown_For_SeparationSeconds()
+        {
+            var cfg = new LapTimerConfig { MinimumTimeBetweenEvents = TimeSpan.FromSeconds(7.9) };
+            Assert.Equal(TimeSpan.FromSeconds(7.9), cfg.MinimumTimeBetweenEvents);
+            Assert.Equal(7, cfg.MinimumEventSeparationSeconds);
+        }
+
+        [Fact]
+        public void Throws_When_Negative()
+        {
+            var cfg = new LapTimerConfig();
+            var ex = Assert.Throws<ArgumentOutOfRangeException>(() => cfg.MinimumTimeBetweenEvents = TimeSpan.FromMilliseconds(-1));
+            Assert.Equal("MinimumTimeBetweenEvents", ex.ParamName);
+        }
+    }
+
+    public sealed class SessionTimeout
+    {
+        [Fact]
+        public void Accepts_Zero()
+        {
+            var cfg = new LapTimerConfig { SessionTimeout = TimeSpan.Zero };
+            Assert.Equal(TimeSpan.Zero, cfg.SessionTimeout);
+        }
+
+        [Fact]
+        public void Accepts_Positive()
+        {
+            var t = TimeSpan.FromMinutes(2);
+            var cfg = new LapTimerConfig { SessionTimeout = t };
+            Assert.Equal(t, cfg.SessionTimeout);
+        }
+
+        [Fact]
+        public void Throws_When_Negative()
+        {
+            var cfg = new LapTimerConfig();
+            var ex = Assert.Throws<ArgumentOutOfRangeException>(() => cfg.SessionTimeout = TimeSpan.FromSeconds(-1));
+            Assert.Equal("SessionTimeout", ex.ParamName);
+        }
+    }
+
+    public sealed class DeviceId
+    {
+        [Fact]
+        public void Has_Default_Guid_String()
+        {
+            var cfg = new LapTimerConfig();
+            Assert.True(IsGuid(cfg.DeviceId));
+        }
+
+        [Fact]
+        public void Setting_NonEmpty_Value_Uses_It()
+        {
+            var cfg = new LapTimerConfig();
+            var custom = "device-123";
+            cfg.DeviceId = custom;
+            Assert.Equal(custom, cfg.DeviceId);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Setting_NullOrWhitespace_Generates_New_Guid(string value)
+        {
+            var cfg = new LapTimerConfig();
+            var before = cfg.DeviceId;
+            Assert.True(IsGuid(before));
+
+            cfg.DeviceId = value;
+
+            var after = cfg.DeviceId;
+            Assert.True(IsGuid(after));
+            Assert.NotEqual(before, after);
+        }
+
+        [Fact]
+        public void EnsureIdentifiers_Generates_When_Missing()
+        {
+            var cfg = new LapTimerConfig();
+            // force empty then ensure
+            cfg.DeviceId = "device-keep";      // set something
+            cfg.DeviceId = " ";                // now blank triggers generation path
+            Assert.True(IsGuid(cfg.DeviceId)); // set already generated by setter
+
+            // Simulates an object with an empty private field, by using the setter
+            cfg.DeviceId = " "; // blank again
+            cfg.EnsureIdentifiers();
+            Assert.True(IsGuid(cfg.DeviceId));
+        }
+    }
+
+    public sealed class UserId
+    {
+        [Fact]
+        public void Can_Be_Null_Or_Empty()
+        {
+            var cfg = new LapTimerConfig();
+            cfg.UserId = null;
+            Assert.Null(cfg.UserId);
+
+            cfg.UserId = "";
+            Assert.Equal("", cfg.UserId);
+
+            cfg.UserId = "   ";
+            Assert.Equal("   ", cfg.UserId);
+        }
+
+        [Fact]
+        public void Can_Be_Set_And_Read()
+        {
+            var cfg = new LapTimerConfig { UserId = "user-42" };
+            Assert.Equal("user-42", cfg.UserId);
+        }
+    }
+
+    public sealed class Flags
+    {
+        [Fact]
+        public void TrackPosition_Defaults_To_False_And_Is_Settable()
+        {
+            var cfg = new LapTimerConfig();
+            Assert.False(cfg.TrackPosition);
+
+            cfg.TrackPosition = true;
+            Assert.True(cfg.TrackPosition);
+
+            cfg.TrackPosition = false;
+            Assert.False(cfg.TrackPosition);
+        }
+
+        [Fact]
+        public void AutoStartDetection_Defaults_To_False_And_Is_Settable()
+        {
+            var cfg = new LapTimerConfig();
+            Assert.False(cfg.AutoStartDetection);
+
+            cfg.AutoStartDetection = true;
+            Assert.True(cfg.AutoStartDetection);
+
+            cfg.AutoStartDetection = false;
+            Assert.False(cfg.AutoStartDetection);
+        }
+    }
+}
