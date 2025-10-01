@@ -5,6 +5,7 @@
     <SignAssembly>True</SignAssembly>
     <IsPackable>true</IsPackable>
     <PackageId>LapViz.Telemetry</PackageId>
+    <Description>Lightweight, high-performance telemetry library for motorsport timing and analytics.</Description>
   </PropertyGroup>
 
   <ItemGroup>

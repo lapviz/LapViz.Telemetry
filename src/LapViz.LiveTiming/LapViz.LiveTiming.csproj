@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
     <PackageId>LapViz.LiveTiming</PackageId>
+    <Description>Client library for openlivetiming.com, the open platform for sharing real-time motorsport lap timing.</Description>
   </PropertyGroup>
 
   <ItemGroup>
