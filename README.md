@@ -1,7 +1,6 @@
 # `LapViz.Telemetry`
 
 _[![NuGet Version](https://img.shields.io/nuget/v/LapViz.Telemetry.svg?style=flat&label=NuGet%3A%20LapViz.Telemetry)](https://www.nuget.org/packages/LapViz.Telemetry/)_  
-[![Netlify Status](https://api.netlify.com/api/v1/badges/YOUR-NETLIFY-ID/deploy-status)](https://app.netlify.com/sites/lapviz/deploys)
 
 A .NET library that provides the core building blocks for **motorsport telemetry and timing**.  
 It powers all LapViz applications (Laptimer, Stopwatch, and our forthcoming web platforms) and includes a reference client for [OpenLiveTiming.com](https://openlivetiming.com), our **open live timing platform**.
@@ -56,7 +55,7 @@ LapViz.Telemetry is more than just a library — it’s the foundation for build
 
 We encourage developers, track owners, and timekeepers worldwide to integrate with [OpenLiveTiming.com](https://openlivetiming.com) and help shape the future of accessible timing solutions.
 
-- 💬 Join the discussion via [GitHub Issues](https://github.com/lapviz/lapviz.telemetry/issues)  
+- 💬 [Join our Discord Community](https://discord.gg/GRfnhBFr)
 - 🤝 Contribute by reading our [Contributing Guidelines](CONTRIBUTING.md)
 
 ---
