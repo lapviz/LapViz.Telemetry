@@ -13,10 +13,16 @@ public class Driver
     public string Id { get; set; }
 
     /// <summary>
-    /// Display name of the driver.
+    /// Display name of the driver (full name).
     /// Example: "Charles Leclerc".
     /// </summary>
     public string Name { get; set; }
+
+    /// <summary>
+    /// Last name of the driver, used for compact displays.
+    /// Example: "Leclerc".
+    /// </summary>
+    public string LastName { get; set; }
 
     /// <summary>
     /// Race number assigned to the driver.

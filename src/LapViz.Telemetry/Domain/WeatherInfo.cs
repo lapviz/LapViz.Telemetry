@@ -50,4 +50,24 @@ public class WeatherInfo
     /// Identifier for a weather icon (e.g. "sunny.png" or a weather API icon code).
     /// </summary>
     public string Icon { get; set; }
+
+    /// <summary>
+    /// Wind direction as a compass bearing (e.g. "NW", "SSE").
+    /// </summary>
+    public string WindDirection { get; set; }
+
+    /// <summary>
+    /// "Feels like" temperature, accounting for wind chill or heat index.
+    /// </summary>
+    public double? FeelsLike { get; set; }
+
+    /// <summary>
+    /// Track surface temperature, if available.
+    /// </summary>
+    public double? TrackTemperature { get; set; }
+
+    /// <summary>
+    /// Track surface condition.
+    /// </summary>
+    public TrackCondition TrackCondition { get; set; }
 }
