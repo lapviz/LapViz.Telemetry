@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text.Json.Serialization;
 using LapViz.Telemetry.Abstractions;
 
 namespace LapViz.Telemetry.Domain;
@@ -80,7 +81,7 @@ public class SessionDataEvent : ITelemetryData, ICloneable
     /// <summary>
     /// Back-reference to the driver session container. Ignored for JSON.
     /// </summary>
-    [Newtonsoft.Json.JsonIgnore]
+    [JsonIgnore]
     public DeviceSessionData DriverRace { get; set; }
 
     /// <summary>
