@@ -137,7 +137,7 @@ namespace LapViz.Telemetry.Domain
         /// Overall best sector times as provided by the timing source,
         /// indexed by sector number. May differ from <see cref="BestSectors"/>.
         /// </summary>
-        public TimeSpan?[] BestSectorTimes { get; set; }
+        public TimeSpan?[] BestSectorTimes { get; set; } = Array.Empty<TimeSpan?>();
 
         /// <summary>
         /// Name of the current leader (display only, source-specific).
