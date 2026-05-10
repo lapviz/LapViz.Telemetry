@@ -70,4 +70,10 @@ public class WeatherInfo
     /// Track surface condition.
     /// </summary>
     public TrackCondition TrackCondition { get; set; }
+
+    /// <summary>
+    /// Numeric weather code from the timing source or weather API.
+    /// Used to derive icon and description when free-text is not available.
+    /// </summary>
+    public int? WeatherCode { get; set; }
 }

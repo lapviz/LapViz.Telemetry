@@ -90,6 +90,12 @@ namespace LapViz.Telemetry.Domain
         public int LeaderLap { get; set; }
 
         /// <summary>
+        /// Alias for <see cref="LeaderLap"/>. Used by timing sources that
+        /// refer to the session lap count simply as "Laps".
+        /// </summary>
+        public int Laps { get => LeaderLap; set => LeaderLap = value; }
+
+        /// <summary>
         /// Total laps in the race. 0 if time-based.
         /// </summary>
         public int TotalLaps { get; set; }
@@ -100,6 +106,53 @@ namespace LapViz.Telemetry.Domain
         /// Current track flag status.
         /// </summary>
         public RaceFlag Flag { get; set; }
+
+        // ── Best lap info ─────────────────────────────────────────
+
+        /// <summary>
+        /// Session best lap time as provided by the timing source.
+        /// May differ from the computed <see cref="BestLap"/> property
+        /// when the source has authoritative data.
+        /// </summary>
+        public TimeSpan? BestLapTime { get; set; }
+
+        /// <summary>
+        /// Racing number of the driver who set the session best lap.
+        /// </summary>
+        public string BestLapByNumber { get; set; }
+
+        /// <summary>
+        /// Display name of the driver who set the session best lap.
+        /// </summary>
+        public string BestLapBy { get; set; }
+
+        // ── Display fields ────────────────────────────────────────
+
+        /// <summary>
+        /// Number of currently connected viewers.
+        /// </summary>
+        public int ViewerCount { get; set; }
+
+        /// <summary>
+        /// Overall best sector times as provided by the timing source,
+        /// indexed by sector number. May differ from <see cref="BestSectors"/>.
+        /// </summary>
+        public TimeSpan?[] BestSectorTimes { get; set; }
+
+        /// <summary>
+        /// Name of the current leader (display only, source-specific).
+        /// </summary>
+        public string Leader { get; set; }
+
+        /// <summary>
+        /// Average speed of the leader (display only, source-specific).
+        /// </summary>
+        public string LeaderAvgSpeed { get; set; }
+
+        /// <summary>
+        /// Margin of victory for the leader (display only, source-specific).
+        /// </summary>
+        public string LeaderMargin { get; set; }
 
         // ── Weather ───────────────────────────────────────────────
 

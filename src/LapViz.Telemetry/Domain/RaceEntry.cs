@@ -1,4 +1,5 @@
 using System;
+using System;
 
 namespace LapViz.Telemetry.Domain
 {
@@ -16,6 +17,10 @@ namespace LapViz.Telemetry.Domain
         {
             Timing = new SessionEvents();
             Driver = new Driver();
+            SectionTimes = new TimeSpan?[10];
+            BestSectionTimes = new TimeSpan?[10];
+            IsSectorOverallBest = new bool[10];
+            IsSectorPersonalBest = new bool[10];
         }
 
         /// <summary>
@@ -32,6 +37,25 @@ namespace LapViz.Telemetry.Domain
         /// The driver associated with this entry.
         /// </summary>
         public Driver Driver { get; set; }
+
+        // ── Identity convenience accessors ────────────────────────
+        // These delegate to <see cref="Driver"/> sub-properties so that
+        // timing sources can read/write flat names without going through Driver.
+
+        /// <summary>Racing number. Delegates to <see cref="Driver.Number"/>.</summary>
+        public string Number { get => Driver.Number ?? ""; set => Driver.Number = value; }
+
+        /// <summary>Full display name. Delegates to <see cref="Driver.Name"/>.</summary>
+        public string FullName { get => Driver.Name ?? ""; set => Driver.Name = value; }
+
+        /// <summary>Family / last name. Delegates to <see cref="Driver.LastName"/>.</summary>
+        public string LastName { get => Driver.LastName ?? ""; set => Driver.LastName = value; }
+
+        /// <summary>Country / nationality code. Delegates to <see cref="Driver.CountryCode"/>.</summary>
+        public string Nationality { get => Driver.CountryCode ?? ""; set => Driver.CountryCode = value; }
+
+        /// <summary>Alias for <see cref="Gap"/>. Used by sources that call the leader gap "Difference".</summary>
+        public string Difference { get => Gap ?? ""; set => Gap = value; }
 
         // ── Timing (composed) ─────────────────────────────────────
 
@@ -62,6 +86,57 @@ namespace LapViz.Telemetry.Domain
         /// Total elapsed time since the start (for race classification).
         /// </summary>
         public TimeSpan? TotalTime { get; set; }
+
+        // ── Lap times (snapshot) ──────────────────────────────────
+
+        /// <summary>
+        /// Most recent lap time as provided by the timing source.
+        /// </summary>
+        public TimeSpan? LastTime { get; set; }
+
+        /// <summary>
+        /// Personal best lap time in this session.
+        /// </summary>
+        public TimeSpan? BestTime { get; set; }
+
+        // ── Sector times (snapshot) ───────────────────────────────
+
+        /// <summary>
+        /// Current/latest sector times, indexed by sector number.
+        /// </summary>
+        public TimeSpan?[] SectionTimes { get; set; }
+
+        /// <summary>
+        /// Personal best sector times, indexed by sector number.
+        /// </summary>
+        public TimeSpan?[] BestSectionTimes { get; set; }
+
+        /// <summary>
+        /// Per-sector flag: true when the sector time is the session overall best.
+        /// Set by sources that provide authoritative best flags.
+        /// </summary>
+        public bool[] IsSectorOverallBest { get; set; }
+
+        /// <summary>
+        /// Per-sector flag: true when the sector time is a personal best.
+        /// Set by sources that provide authoritative best flags.
+        /// </summary>
+        public bool[] IsSectorPersonalBest { get; set; }
+
+        /// <summary>
+        /// True when the last lap time is the session overall best.
+        /// </summary>
+        public bool IsLastLapOverallBest { get; set; }
+
+        /// <summary>
+        /// True when the last lap time is a personal best.
+        /// </summary>
+        public bool IsLastLapPersonalBest { get; set; }
+
+        /// <summary>
+        /// Index of the last completed sector (0-based). -1 if none.
+        /// </summary>
+        public int LastCompletedSector { get; set; } = -1;
 
         // ── Gaps ──────────────────────────────────────────────────
 

@@ -27,6 +27,15 @@ namespace LapViz.Telemetry.Domain
         SafetyCar,
 
         /// <summary>Virtual safety car is deployed.</summary>
-        VirtualSafetyCar
+        VirtualSafetyCar,
+
+        /// <summary>Blue flag: let faster car pass.</summary>
+        Blue,
+
+        /// <summary>White flag: slow vehicle on track / last lap (context-dependent).</summary>
+        White,
+
+        /// <summary>Black flag: driver disqualified or must report to pit.</summary>
+        Black
     }
 }
