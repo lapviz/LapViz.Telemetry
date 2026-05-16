@@ -18,6 +18,9 @@ namespace LapViz.Telemetry.Domain
         Warmup,
 
         /// <summary>Competitive race session.</summary>
-        Race
+        Race,
+
+        /// <summary>Test session.</summary>
+        Test
     }
 }
