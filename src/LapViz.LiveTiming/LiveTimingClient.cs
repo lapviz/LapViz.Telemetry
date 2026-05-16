@@ -461,7 +461,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
                     await Task.Delay(100);
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to process queue: {message}", ex.Message);
                 //throw;

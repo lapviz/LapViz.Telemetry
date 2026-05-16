@@ -1,18 +1,17 @@
-namespace LapViz.Telemetry.Domain
+namespace LapViz.Telemetry.Domain;
+
+/// <summary>
+/// An external link associated with a race event.
+/// </summary>
+public class RaceLink
 {
     /// <summary>
-    /// An external link associated with a race event.
+    /// Display text for the link.
     /// </summary>
-    public class RaceLink
-    {
-        /// <summary>
-        /// Display text for the link.
-        /// </summary>
-        public string Label { get; set; }
+    public string Label { get; set; }
 
-        /// <summary>
-        /// Target URL.
-        /// </summary>
-        public string Url { get; set; }
-    }
+    /// <summary>
+    /// Target URL.
+    /// </summary>
+    public string Url { get; set; }
 }
