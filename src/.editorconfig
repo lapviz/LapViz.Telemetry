@@ -240,3 +240,11 @@ dotnet_diagnostic.SA1626.severity = none
 dotnet_diagnostic.CS1587.severity = none
 dotnet_diagnostic.SA1604.severity = none
 dotnet_diagnostic.CS0162.severity = suggestion
+
+
+# Suppress rules requiring APIs not available on netstandard2.0
+dotnet_diagnostic.CA2249.severity = none
+dotnet_diagnostic.CA1510.severity = none
+
+# RCS1079: NotImplementedException is intentional for stub interface members
+dotnet_diagnostic.RCS1079.severity = none

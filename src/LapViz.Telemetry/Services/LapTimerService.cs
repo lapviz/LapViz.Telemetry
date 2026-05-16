@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -238,7 +239,7 @@ public class LapTimerService : ILapTimer
         var now = DateTimeOffset.UtcNow; // use UTC for consistency
         var session = new DeviceSessionData
         {
-            Id = now.ToString("yyyyMMddHHmmss"),
+            Id = now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
             CircuitCode = _circuitConfiguration.Code,
             Generator = "LapViz.LapTimer.Service",
             Version = _version.ToString(),

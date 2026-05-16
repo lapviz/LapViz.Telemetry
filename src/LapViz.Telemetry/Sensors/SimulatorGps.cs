@@ -33,7 +33,7 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
     // CSV field indexes (auto-discovered from header)
     private int _latitudeColumnIndex = 1;
     private int _longitudeColumnIndex = 2;
-    private int _timeIndex = 0;
+    private int _timeIndex;
     private int _distanceGps = -1;
     private int _speed = -1;
 

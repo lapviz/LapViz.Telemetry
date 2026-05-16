@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using LapViz.Telemetry.Abstractions;
 using LapViz.Telemetry.Domain;
@@ -159,7 +160,7 @@ public class GeolocationSingleSessionManager
     {
         var session = new DeviceSessionData
         {
-            Id = DateTime.Now.ToString("yyyyMMddHHmmss"),
+            Id = DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
             CircuitCode = _circuit?.Code,
             Generator = "LapViz",
             Version = Version.ToString(),

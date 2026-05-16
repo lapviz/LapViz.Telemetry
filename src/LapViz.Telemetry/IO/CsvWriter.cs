@@ -49,7 +49,7 @@ public class CsvWriter : ITelemetryDataWriter
 
             foreach (var data in lapTelemetryData)
             {
-                builder.Append(data.Timestamp.ToString("yyyy-MM-dd'T'HH:mm:ssK") + ",");
+                builder.Append(data.Timestamp.ToString("yyyy-MM-dd'T'HH:mm:ssK", CultureInfo.InvariantCulture) + ",");
 
                 var stringArray = Array.ConvertAll(data.Data.Select(x => x.Value).ToArray(), d => d.ToString("#.#####", CultureInfo.InvariantCulture));
                 builder.AppendLine(string.Join(",", stringArray));

@@ -37,7 +37,7 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
     /// </summary>
     public DelimitedDataReader(DelimitedDataReaderConfiguration configuration)
     {
-        if (configuration == null) throw new ArgumentNullException("configuration");
+        if (configuration == null) throw new ArgumentNullException(nameof(configuration));
         _config = configuration;
         _columnToIgnoreIndexes = new HashSet<int>();
     }
@@ -120,7 +120,7 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
         return SplitWithQuotes(line, _config.Delimiter);
     }
 
-    private List<string> SplitWithQuotes(string line, char delimiter)
+    private static List<string> SplitWithQuotes(string line, char delimiter)
     {
         var result = new List<string>();
         if (line == null) return result;
@@ -254,7 +254,6 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
 
             if (!string.IsNullOrWhiteSpace(_config.FileNameExclude))
             {
-                // C# 7.3: string.Contains(StringComparison) not available, use IndexOf >= 0
                 matchedFiles.RemoveAll(x =>
                     x.IndexOf(_config.FileNameExclude, StringComparison.OrdinalIgnoreCase) >= 0);
             }

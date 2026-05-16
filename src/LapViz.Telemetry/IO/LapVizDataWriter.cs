@@ -203,7 +203,7 @@ public class LapVizDataWriter : ITelemetryDataWriter, IDisposable
     /// Writes headers + all events + all data into the given <paramref name="writer"/>.
     /// Used by one-shot methods.
     /// </summary>
-    private void WriteAllPayload(TextWriter writer, DeviceSessionData session)
+    private static void WriteAllPayload(TextWriter writer, DeviceSessionData session)
     {
         var channels = (session.TelemetryChannels != null && session.TelemetryChannels.Any())
             ? session.TelemetryChannels

@@ -64,8 +64,8 @@ public static class TimingFormatters
         if (!time.HasValue) return "";
 
         return time.Value.TotalHours >= 1
-            ? time.Value.ToString(@"h\:mm\:ss")
-            : time.Value.ToString(@"m\:ss");
+            ? time.Value.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture)
+            : time.Value.ToString(@"m\:ss", CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -151,7 +151,7 @@ public static class TimingFormatters
     public static string FormatTimeOfDay(DateTimeOffset? time)
     {
         if (!time.HasValue) return "";
-        return time.Value.ToString("HH:mm:ss");
+        return time.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

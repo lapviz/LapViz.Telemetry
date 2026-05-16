@@ -240,11 +240,15 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
             using (var fs = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 if (fs.Length < 4) return false;
-                fs.Read(sig, 0, 4);
+                int bytesRead = 0;
+                while (bytesRead < 4)
+                {
+                    int n = fs.Read(sig, bytesRead, 4 - bytesRead);
+                    if (n == 0) return false;
+                    bytesRead += n;
+                }
             }
 
-
-            return sig[0] == (byte)'P' && sig[1] == (byte)'K' && sig[2] == 3 && sig[3] == 4;
             return sig[0] == (byte)'P' && sig[1] == (byte)'K' && sig[2] == 3 && sig[3] == 4;
         }
         catch { return false; }
@@ -266,7 +270,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     /// Parses an event line in the form "#Event=tsMs,Type,Lap,Sector,TimeTicks".
     /// Returns null if the line is malformed.
     /// </summary>
-    private SessionDataEvent ParseEvent(string line)
+    private static SessionDataEvent ParseEvent(string line)
     {
         try
         {
