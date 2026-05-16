@@ -2,17 +2,14 @@ using System;
 using System.Threading;
 
 namespace LapViz.Telemetry.Domain;
-
-/// <summary>
-/// A compact 64-bit, time-ordered unique identifier inspired by UUIDv7 (RFC 9562).
-/// 
+///
 /// <para><b>Bit layout (MSB → LSB):</b></para>
 /// <code>
 /// ┌──────────────────────────────────────────┬──────────────────────┐
 /// │  42 bits: ms since 2024-01-01 UTC epoch  │  22 bits: random     │
 /// └──────────────────────────────────────────┴──────────────────────┘
 /// </code>
-/// 
+///
 /// <para><b>Design rationale:</b></para>
 /// <list type="bullet">
 ///   <item><b>8 bytes</b> — 50% smaller than a 16-byte Guid; reduces network payload and
@@ -26,10 +23,39 @@ namespace LapViz.Telemetry.Domain;
 ///   <item><b>Embedded timestamp</b> — the creation time can be recovered via
 ///   <see cref="Timestamp"/> without storing a separate field.</item>
 /// </list>
-/// 
+///
 /// <para><b>Wire format:</b> <see cref="ToString"/> produces an 11-character Base64url string
 /// (no padding, URL-safe). Use <see cref="Parse"/> to reconstruct.</para>
-/// 
+///
+
+
+/// <summary>
+/// A compact 64-bit, time-ordered unique identifier inspired by UUIDv7 (RFC 9562).
+///
+/// <para><b>Bit layout (MSB → LSB):</b></para>
+/// <code>
+/// ┌──────────────────────────────────────────┬──────────────────────┐
+/// │  42 bits: ms since 2024-01-01 UTC epoch  │  22 bits: random     │
+/// └──────────────────────────────────────────┴──────────────────────┘
+/// </code>
+///
+/// <para><b>Design rationale:</b></para>
+/// <list type="bullet">
+///   <item><b>8 bytes</b> — 50% smaller than a 16-byte Guid; reduces network payload and
+///   hash-table memory in high-throughput telemetry scenarios.</item>
+///   <item><b>Time-ordered</b> — IDs are monotonically sortable by creation time, enabling
+///   efficient binary search in event logs and B-tree friendly storage.</item>
+///   <item><b>~4 million unique IDs per millisecond</b> — 22 random bits provide sufficient
+///   entropy for racing telemetry (~tens of events/sec/device across hundreds of nodes).</item>
+///   <item><b>No coordination</b> — each node generates independently; no distributed counter
+///   or lock needed. Collisions are statistically negligible at expected event rates.</item>
+///   <item><b>Embedded timestamp</b> — the creation time can be recovered via
+///   <see cref="Timestamp"/> without storing a separate field.</item>
+/// </list>
+///
+/// <para><b>Wire format:</b> <see cref="ToString"/> produces an 11-character Base64url string
+/// (no padding, URL-safe). Use <see cref="Parse"/> to reconstruct.</para>
+///
 /// <para><b>Collision probability:</b> For N events in the same millisecond across all nodes,
 /// P(collision) ≈ N² / 2^23. At 100 events/ms (extreme), P ≈ 0.0012 — acceptable for
 /// telemetry. If exact guarantees are required, combine with a node-specific prefix.</para>

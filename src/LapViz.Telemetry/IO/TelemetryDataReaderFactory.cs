@@ -39,6 +39,9 @@ public sealed class TelemetryDataReaderFactory : IDisposable
         _logger = logger ?? (ILogger<TelemetryDataReaderFactory>)new NullLogger<TelemetryDataReaderFactory>();
         _catalog = new AggregateCatalog();
         // We do not load by default here; Instance uses LoadReaderExtensions() to keep old behavior
+
+
+        // We do not load by default here; Instance uses LoadReaderExtensions() to keep old behavior
         LoadReaderExtensions();
     }
 

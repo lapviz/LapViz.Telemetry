@@ -5,10 +5,7 @@ using System.Linq;
 using System.Threading;
 
 namespace LapViz.Telemetry.Domain;
-
-/// <summary>
-/// Aggregates telemetry session data across multiple devices. This class is thread-safe.
-/// 
+///
 /// <para><b>Synchronization model (inspired by multiplayer game netcode):</b></para>
 /// <list type="bullet">
 ///   <item><b>Event log with sequence numbers</b> — every ingested event is assigned a
@@ -19,7 +16,7 @@ namespace LapViz.Telemetry.Domain;
 ///   <item><b>Bidirectional delta sync</b> — two instances can be compared to produce a
 ///   <see cref="SessionSyncDelta"/> describing what each side is missing (server reconciliation).</item>
 /// </list>
-/// 
+///
 /// <para><b>Thread-safety guarantees:</b></para>
 /// <list type="bullet">
 ///   <item><see cref="Devices"/> is a <see cref="ConcurrentDictionary{TKey, TValue}"/> — safe
@@ -29,7 +26,33 @@ namespace LapViz.Telemetry.Domain;
 ///   <item>The event log is protected by a single lock (<c>_eventLogLock</c>); this is acceptable
 ///   because appends are fast O(1) amortized and reads take a snapshot.</item>
 /// </list>
-/// 
+///
+
+
+/// <summary>
+/// Aggregates telemetry session data across multiple devices. This class is thread-safe.
+///
+/// <para><b>Synchronization model (inspired by multiplayer game netcode):</b></para>
+/// <list type="bullet">
+///   <item><b>Event log with sequence numbers</b> — every ingested event is assigned a
+///   monotonically increasing sequence number, enabling reliable ordered replay (similar to
+///   a reliable ordered channel in game networking).</item>
+///   <item><b>Catch-up streaming</b> — consumers can request all events since a given sequence
+///   number or timestamp, enabling late-joiners to synchronize (snapshot + delta pattern).</item>
+///   <item><b>Bidirectional delta sync</b> — two instances can be compared to produce a
+///   <see cref="SessionSyncDelta"/> describing what each side is missing (server reconciliation).</item>
+/// </list>
+///
+/// <para><b>Thread-safety guarantees:</b></para>
+/// <list type="bullet">
+///   <item><see cref="Devices"/> is a <see cref="ConcurrentDictionary{TKey, TValue}"/> — safe
+///   for concurrent reads/writes of different devices.</item>
+///   <item>Per-device mutations are serialized via fine-grained locks (one lock object per device)
+///   to avoid contention across unrelated devices.</item>
+///   <item>The event log is protected by a single lock (<c>_eventLogLock</c>); this is acceptable
+///   because appends are fast O(1) amortized and reads take a snapshot.</item>
+/// </list>
+///
 /// <para><b>Developer notes:</b></para>
 /// <list type="bullet">
 ///   <item>Deduplication is performed FIRST (via <see cref="CompactEventId"/>) before mutating
@@ -129,14 +152,7 @@ public class SessionData
                     g => g.Key,
                     g => (TimeSpan?)g.Min(kvp => kvp.Value.Time)
                 );
-        }
-    }
-
-    // ─── Event ingestion ─────────────────────────────────────────────────
-
-    /// <summary>
-    /// Adds a timing event (lap or sector) to the session.
-    /// 
+    ///
     /// <para><b>Processing order:</b></para>
     /// <list type="number">
     ///   <item>Null/type guard — only Sector and Lap events are accepted.</item>
@@ -145,7 +161,25 @@ public class SessionData
     ///   <item>Device aggregation — the event is forwarded to the per-device container.</item>
     ///   <item>Event log append — a sequence number is assigned and the event is stored.</item>
     /// </list>
-    /// 
+    ///
+
+        }
+    }
+
+    // ─── Event ingestion ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Adds a timing event (lap or sector) to the session.
+    ///
+    /// <para><b>Processing order:</b></para>
+    /// <list type="number">
+    ///   <item>Null/type guard — only Sector and Lap events are accepted.</item>
+    ///   <item>Deduplication — if <see cref="SessionDataEvent.EventId"/> is already known,
+    ///   the event is silently dropped (idempotent).</item>
+    ///   <item>Device aggregation — the event is forwarded to the per-device container.</item>
+    ///   <item>Event log append — a sequence number is assigned and the event is stored.</item>
+    /// </list>
+    ///
     /// <para><b>Idempotency:</b> Safe to call multiple times with the same event
     /// (e.g., during retry or mesh fan-out). Duplicates are detected via
     /// <see cref="CompactEventId"/> in O(1).</para>
@@ -220,6 +254,15 @@ public class SessionData
         lock (devLock)
         {
             action(device);
+    ///
+    /// <para><b>Catch-up pattern:</b> A consumer stores <see cref="CurrentSequence"/> after
+    /// processing a batch, then later calls this method with that stored value to get only
+    /// events it hasn't seen. This is analogous to a game client reconnecting mid-match and
+    /// requesting "everything since tick N".</para>
+    ///
+    /// <para>Pass 0 to get the full history.</para>
+    ///
+
         }
     }
 
@@ -229,14 +272,14 @@ public class SessionData
 
     /// <summary>
     /// Returns all events with a sequence number strictly greater than <paramref name="afterSequence"/>.
-    /// 
+    ///
     /// <para><b>Catch-up pattern:</b> A consumer stores <see cref="CurrentSequence"/> after
     /// processing a batch, then later calls this method with that stored value to get only
     /// events it hasn't seen. This is analogous to a game client reconnecting mid-match and
     /// requesting "everything since tick N".</para>
-    /// 
+    ///
     /// <para>Pass 0 to get the full history.</para>
-    /// 
+    ///
     /// <para><b>Complexity:</b> O(n) linear scan from the end (could be optimized to binary
     /// search since sequences are monotonic, but event counts per session are typically small
     /// enough that this is negligible).</para>
@@ -265,12 +308,14 @@ public class SessionData
                 return Array.Empty<SequencedEvent>();
 
             return _eventLog.GetRange(startIndex, _eventLog.Count - startIndex).ToArray();
+    ///
+
         }
     }
 
     /// <summary>
     /// Returns all events with a timestamp at or after <paramref name="since"/>.
-    /// 
+    ///
     /// <para><b>Use case:</b> Time-based replay or streaming from a wall-clock reference.
     /// Note that timestamps depend on device clocks and may not be perfectly ordered.
     /// For reliable ordering, prefer <see cref="GetEventsSince(long)"/>.</para>
@@ -294,6 +339,15 @@ public class SessionData
         lock (_eventLogLock)
         {
             return _eventLog.ToArray();
+    ///
+    /// <para><b>Game netcode analogy — Server Reconciliation:</b> Both peers exchange their
+    /// known event ID sets and each applies the operations they are missing. Because
+    /// <see cref="AddEvent"/> is idempotent, applying the delta multiple times is safe.</para>
+    ///
+    /// <para><b>Complexity:</b> O(|source| + |target|) — two HashSet constructions + two
+    /// linear scans with O(1) membership tests.</para>
+    ///
+
         }
     }
 
@@ -302,14 +356,14 @@ public class SessionData
     /// <summary>
     /// Computes the bidirectional delta between this instance (source) and <paramref name="other"/> (target).
     /// Returns which events need to be added to each side to achieve convergence.
-    /// 
+    ///
     /// <para><b>Game netcode analogy — Server Reconciliation:</b> Both peers exchange their
     /// known event ID sets and each applies the operations they are missing. Because
     /// <see cref="AddEvent"/> is idempotent, applying the delta multiple times is safe.</para>
-    /// 
+    ///
     /// <para><b>Complexity:</b> O(|source| + |target|) — two HashSet constructions + two
     /// linear scans with O(1) membership tests.</para>
-    /// 
+    ///
     /// <para><b>Event identity:</b> Determined solely by <see cref="CompactEventId"/>
     /// (globally unique, 8-byte, time-ordered).</para>
     /// </summary>
@@ -354,13 +408,15 @@ public class SessionData
             EventsToAddToTarget = toAddToTarget,
             EventsToAddToSource = toAddToSource
         };
+    ///
+
     }
 
     /// <summary>
     /// Applies a collection of events from a remote source (e.g., from a <see cref="SessionSyncDelta"/>).
     /// Each event is processed through <see cref="AddEvent"/>, going through the full pipeline:
     /// deduplication → device aggregation → event log append.
-    /// 
+    ///
     /// <para><b>Idempotent:</b> Safe to call with overlapping event sets — duplicates are
     /// silently skipped.</para>
     /// </summary>

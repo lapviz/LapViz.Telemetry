@@ -130,6 +130,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                                 evt.Timestamp = last.Timestamp;
                             session.AddEvent(evt);
                         }
+
+
+                        continue;
                         continue;
                     }
 
@@ -218,6 +221,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                 return ms;
             }
         }
+
+
+        return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
         return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
@@ -236,6 +242,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                 if (fs.Length < 4) return false;
                 fs.Read(sig, 0, 4);
             }
+
+
+            return sig[0] == (byte)'P' && sig[1] == (byte)'K' && sig[2] == 3 && sig[3] == 4;
             return sig[0] == (byte)'P' && sig[1] == (byte)'K' && sig[2] == 3 && sig[3] == 4;
         }
         catch { return false; }

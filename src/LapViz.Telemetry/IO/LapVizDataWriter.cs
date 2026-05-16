@@ -321,6 +321,8 @@ public class LapVizDataWriter : ITelemetryDataWriter, IDisposable
             if (i < n - 1)
                 sb.Append(',');
         }
+
+
         return sb.ToString();
     }
 

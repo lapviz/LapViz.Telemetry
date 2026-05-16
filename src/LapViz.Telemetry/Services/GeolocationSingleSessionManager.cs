@@ -374,6 +374,8 @@ public class GeolocationSingleSessionManager
             _circuit = detected;
             return true;
         }
+
+
         return false;
     }
 

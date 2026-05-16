@@ -117,8 +117,13 @@ public class StaticCircuitService : ICircuitService
             if (c == null) continue;
             if (string.IsNullOrWhiteSpace(c.Code)) continue;
             // Last one wins if duplicates exist (keeps behavior deterministic)
+
+
+            // Last one wins if duplicates exist (keeps behavior deterministic)
             dict[c.Code] = c;
         }
+
+
         return dict;
     }
 

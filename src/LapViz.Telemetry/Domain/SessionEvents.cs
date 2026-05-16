@@ -145,6 +145,8 @@ public class SessionEvents
                             if (best == null || e.Time < best.Time)
                                 best = e;
                         }
+
+
                         return best;
                     });
         }

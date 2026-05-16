@@ -249,6 +249,7 @@ public static class TimingFormatters
         {
             source = source.Substring(0, index) + newValue + source.Substring(index + oldValue.Length);
         }
+
         return source;
 #else
         return source.Replace(oldValue, newValue, StringComparison.OrdinalIgnoreCase);

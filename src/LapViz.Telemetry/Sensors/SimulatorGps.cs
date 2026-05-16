@@ -354,10 +354,12 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
     {
         // Guard against overflow: DateTime supports roughly years 0001..9999
         return s_epochUtc.AddMilliseconds(unixTimeMs);
+    /// Parses the header row and maps column indices.
+
     }
 
     /// <summary>
-    /// Parses the header row and maps column indices. 
+    /// Parses the header row and maps column indices.
     /// Looks for common field names: Latitude, Longitude, Time, "Distance GPS", KPH.
     /// </summary>
     private void ParseFieldDefinition(string line)

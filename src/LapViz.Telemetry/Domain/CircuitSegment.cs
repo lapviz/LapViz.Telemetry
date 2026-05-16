@@ -1,8 +1,10 @@
 namespace LapViz.Telemetry.Domain;
+///
+
 
 /// <summary>
 /// Represents a circuit sector, defined by a line (crossing boundary) and a sequential number.
-/// 
+///
 /// Direction convention:
 /// To establish the "valid" crossing direction, we consider the line as the base of an
 /// isosceles triangle:

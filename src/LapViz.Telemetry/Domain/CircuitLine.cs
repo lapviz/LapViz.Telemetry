@@ -46,6 +46,8 @@ public class CircuitGeoLine
 
         return location.Latitude >= minLat && location.Latitude <= maxLat
             && location.Longitude >= minLon && location.Longitude <= maxLon;
+    ///
+
     }
 
     /// <summary>
@@ -53,7 +55,7 @@ public class CircuitGeoLine
     /// - 1.0 means p is exactly in the middle (equidistant from Start and End).
     /// - 0.0 means p coincides with one of the endpoints.
     /// - Values between 0 and 1 indicate how balanced the distances are.
-    /// 
+    ///
     /// Use this when you care about symmetry between endpoints,
     /// for example when detecting if a point is near the midpoint of a track section.
     /// </summary>
@@ -76,6 +78,8 @@ public class CircuitGeoLine
         if (ratio > 1.0) return 1.0;
 
         return ratio;
+    ///
+
     }
 
     /// <summary>
@@ -83,7 +87,7 @@ public class CircuitGeoLine
     /// - 0.0 means projection lies exactly at Start.
     /// - 1.0 means projection lies exactly at End.
     /// - Values between 0 and 1 represent the normalized position along the segment.
-    /// 
+    ///
     /// Use this when you want to know "where along the segment" p is located,
     /// for example when interpolating lap position or progress along a track section.
     /// </summary>

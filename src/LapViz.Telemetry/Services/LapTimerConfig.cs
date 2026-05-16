@@ -120,5 +120,8 @@ public sealed class LapTimerConfig
         if (string.IsNullOrWhiteSpace(_deviceId))
             _deviceId = Guid.NewGuid().ToString();
         // UserId is optional; leave as-is.
+
+
+        // UserId is optional; leave as-is.
     }
 }

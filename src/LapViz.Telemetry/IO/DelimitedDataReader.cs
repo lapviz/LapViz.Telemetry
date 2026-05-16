@@ -138,9 +138,13 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
                 else inQuotes = !inQuotes;
                 continue;
             }
+
+
             if (c == delimiter && !inQuotes) { result.Add(sb.ToString().Trim()); sb.Clear(); }
             else sb.Append(c);
         }
+
+
         result.Add(sb.ToString().Trim());
         return result;
     }
@@ -431,6 +435,9 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
     private StreamReader OpenReader(string path)
     {
         var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // detectEncodingFromByteOrderMarks: true will honor BOMs
+
+
         // detectEncodingFromByteOrderMarks: true will honor BOMs
         return new StreamReader(fs, _config.FileEncoding, detectEncodingFromByteOrderMarks: true);
     }
