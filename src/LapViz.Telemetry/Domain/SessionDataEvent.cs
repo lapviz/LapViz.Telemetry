@@ -13,6 +13,12 @@ namespace LapViz.Telemetry.Domain;
 public class SessionDataEvent : ITelemetryData, ICloneable
 {
     /// <summary>
+    /// Compact time-ordered unique identifier for this event instance (8 bytes, UUIDv7-inspired).
+    /// Assigned once at creation and preserved across all replicas for deduplication.
+    /// </summary>
+    public CompactEventId EventId { get; set; } = CompactEventId.NewId();
+
+    /// <summary>
     /// Event timestamp (UTC recommended).
     /// </summary>
     public DateTimeOffset Timestamp { get; set; }
