@@ -47,6 +47,9 @@ public class RaceEntry
     /// <summary>Full display name. Delegates to <see cref="Driver.Name"/>.</summary>
     public string FullName { get => Driver.Name ?? ""; set => Driver.Name = value; }
 
+    /// <summary>Optional class/category label as provided by the timing source.</summary>
+    public string ClassName { get; set; } = "";
+
     /// <summary>Family / last name. Delegates to <see cref="Driver.LastName"/>.</summary>
     public string LastName { get => Driver.LastName ?? ""; set => Driver.LastName = value; }
 
@@ -97,6 +100,11 @@ public class RaceEntry
     /// Personal best lap time in this session.
     /// </summary>
     public TimeSpan? BestTime { get; set; }
+
+    /// <summary>
+    /// Current speed in km/h, when provided by the source.
+    /// </summary>
+    public double? SpeedKph { get; set; }
 
     // ── Sector times (snapshot) ───────────────────────────────
 
