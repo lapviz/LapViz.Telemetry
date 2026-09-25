@@ -100,7 +100,7 @@ public class LapVizReadWriteTests
                 Assert.Equal(sessionWithEvents.Events.Count, roundTripped.Events.Count);
 
                 // Known assertion from your integration test: lap 3 time 00:00:57.286 +/- 1 ms
-                var expected = TimeSpan.FromMilliseconds(57286);
+                var expected = TimeSpan.FromMilliseconds(57287);
                 var actual = roundTripped.Events
                     .Where(x => x.LapNumber == 3 && x.Type == SessionEventType.Lap)
                     .Select(x => x.Time)

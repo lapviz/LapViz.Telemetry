@@ -176,6 +176,36 @@ public class LapTimerServiceTests
         }
 
         [Fact]
+        public void Crossing_Timestamp_Is_Interpolated_Along_Trajectory()
+        {
+            var cfg = new LapTimerConfig
+            {
+                AutoStartDetection = true,
+                MinimumTimeBetweenEvents = TimeSpan.Zero
+            };
+            var svc = NewService(cfg);
+            svc.SetCircuit(MakeCircuit(segmentCount: 1));
+
+            var t0 = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero);
+            var added = new List<SessionDataEvent>();
+            svc.EventAdded += (_, e) => added.Add(e);
+
+            // Finish line at lon=0, crossed at 25% of the trajectory (and at 90% below):
+            // the crossing time must follow the position along the trajectory.
+            svc.AddGeolocation(Fix(0, -0.001, t0));
+            svc.AddGeolocation(Fix(0, +0.003, t0.AddSeconds(10)));
+
+            Assert.Equal(t0.AddSeconds(2.5), added[0].Timestamp);
+            Assert.Equal(0.25, added[0].Factor, 9);
+
+            svc.AddGeolocation(Fix(0, -0.009, t0.AddSeconds(20)));
+            svc.AddGeolocation(Fix(0, +0.001, t0.AddSeconds(30)));
+
+            var second = added.Last(e => e.Type == SessionEventType.Sector);
+            Assert.Equal(t0.AddSeconds(29), second.Timestamp);
+        }
+
+        [Fact]
         public void TrackPosition_Adds_Position_Event_Per_Fix_After_First()
         {
             var cfg = new LapTimerConfig
@@ -287,7 +317,7 @@ public class LapTimerServiceTests
             // Expectations from your original sample
             Assert.Equal(90, events.Count);
 
-            var expected = TimeSpan.FromMilliseconds(56357); // 00:00:56.357
+            var expected = TimeSpan.FromMilliseconds(56423); // 00:00:56.423
             var actual = events
                 .Where(x => x.LapNumber == 7 && x.Type == SessionEventType.Lap)
                 .Select(x => x.Time)
@@ -350,7 +380,7 @@ public class LapTimerServiceTests
 
             Assert.Equal(155, events.Count);
 
-            var expected = TimeSpan.FromMilliseconds(56381); // 00:00:56.381
+            var expected = TimeSpan.FromMilliseconds(56391); // 00:00:56.391
             var actual = events
                 .Where(x => x.LapNumber == 7 && x.Type == SessionEventType.Lap)
                 .Select(x => x.Time)
@@ -533,7 +563,7 @@ public class LapTimerServiceTests
             Assert.Equal(52, events.Count);
 
             // lap 3 time expected to be 00:00:57.286 with tolerance 1 ms
-            var expected = TimeSpan.FromMilliseconds(57286);
+            var expected = TimeSpan.FromMilliseconds(57287);
             var actual = events
                 .Where(x => x.LapNumber == 3 && x.Type == SessionEventType.Lap)
                 .Select(x => x.Time)

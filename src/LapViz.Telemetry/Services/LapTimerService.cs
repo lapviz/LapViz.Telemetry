@@ -94,7 +94,7 @@ public class LapTimerService : ILapTimer
             if (intersect == null) continue;
 
             // Interpolate timestamp at boundary crossing
-            var factor = trajectory.CenterFactor(intersect);
+            var factor = trajectory.ParameterOf(intersect);
             var dtMs = (curr.Timestamp - prev.Timestamp).TotalMilliseconds;
             var adjustedTs = prev.Timestamp.AddMilliseconds(dtMs * factor);
 

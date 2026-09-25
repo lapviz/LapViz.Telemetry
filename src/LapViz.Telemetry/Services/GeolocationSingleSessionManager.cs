@@ -215,7 +215,7 @@ public class GeolocationSingleSessionManager
                 continue;
 
             // Linear interpolation on the segment to adjust timestamp at crossing
-            var factor = trajectory.CenterFactor(intersect);
+            var factor = trajectory.ParameterOf(intersect);
             var dt = (current.Timestamp - _previousTelemetryData.Timestamp).TotalMilliseconds;
             var adjustedTimestamp = _previousTelemetryData.Timestamp.AddMilliseconds(dt * factor);
 
