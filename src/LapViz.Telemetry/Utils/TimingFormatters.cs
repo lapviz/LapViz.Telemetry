@@ -100,6 +100,16 @@ public static class TimingFormatters
         var normalized = timeStr.Replace(',', '.');
         var parts = normalized.Split(':');
 
+        if (parts.Length == 3)
+        {
+            if (int.TryParse(parts[0], out var hours) &&
+                int.TryParse(parts[1], out var mins) &&
+                double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out var secs))
+            {
+                return TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(mins) + TimeSpan.FromSeconds(secs);
+            }
+        }
+
         if (parts.Length == 2)
         {
             if (int.TryParse(parts[0], out var mins) &&
