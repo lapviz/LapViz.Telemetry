@@ -22,7 +22,10 @@ namespace LapViz.Telemetry.Sensors;
 ///  - <see cref="DataReceived"/>: fires with each <see cref="GeoTelemetryData"/> sample.
 ///  - <see cref="StateChanged"/>: emits lifecycle transitions.
 /// </summary>
+// Also implements the obsolete misspelled interface so existing ITelemtrySensor variables keep compiling
+#pragma warning disable CS0618
 public class SimulatorGps : ITelemtrySensor, IDisposable
+#pragma warning restore CS0618
 {
     private readonly ILogger _logger;
     private readonly DeviceSessionData _driverRace;   // optional source; if null, we use an embedded CSV

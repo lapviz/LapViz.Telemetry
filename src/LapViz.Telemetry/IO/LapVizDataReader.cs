@@ -25,7 +25,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     private const string VERSION = "#Version=1";
     private const string FIELDS_PREFIX = "#Fields=";
     private const string EVENT_PREFIX = "#Event=";
-    private const string CIRCUIT_PREFX = "#CircuitCode=";
+    private const string CIRCUIT_PREFIX = "#CircuitCode=";
 
     private IList<string> _channels;
     private int _latIndex = -1, _lonIndex = -1, _altIndex = -1, _spdIndex = -1, _accIndex = -1;
@@ -101,9 +101,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                     if (line.StartsWith(TOPHEADER, StringComparison.Ordinal)) continue;
                     if (line.StartsWith(VERSION, StringComparison.Ordinal)) continue;
 
-                    if (line.StartsWith(CIRCUIT_PREFX, StringComparison.Ordinal))
+                    if (line.StartsWith(CIRCUIT_PREFIX, StringComparison.Ordinal))
                     {
-                        session.CircuitCode = line.Substring(CIRCUIT_PREFX.Length).Trim();
+                        session.CircuitCode = line.Substring(CIRCUIT_PREFIX.Length).Trim();
                         continue;
                     }
 

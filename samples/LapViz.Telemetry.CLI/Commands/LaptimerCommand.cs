@@ -13,7 +13,7 @@ namespace LapViz.Telemetry.CLI.Commands;
 public sealed class LaptimerCommand : Command<LaptimerSettings>
 {
     private ILapTimer? _lapTimerService;
-    private ITelemtrySensor? _telemetry;
+    private ITelemetrySensor? _telemetry;
     private ObservableLiveTimingClient? _liveTimingClient;
 
     private string? _sessionId;
@@ -283,7 +283,7 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
 
     private ConsoleColor GetConsoleColorFromRaceEvent(SessionDataEvent raceEvent, TimeSpan? bestEvent)
     {
-        if (!bestEvent.HasValue || bestEvent >= raceEvent.Time || raceEvent.IsPersonnalBest)
+        if (!bestEvent.HasValue || bestEvent >= raceEvent.Time || raceEvent.IsPersonalBest)
             return ConsoleColor.Magenta;
 
         if (raceEvent.IsBestOverall)
