@@ -127,7 +127,7 @@ public class GeolocationSingleSessionManagerTests
     }
 
     [Fact]
-    public void Manager_And_LapTimerService_Produce_The_Same_Laps_On_Real_Data()
+    public async Task Manager_And_LapTimerService_Produce_The_Same_Laps_On_Real_Data()
     {
         var parser = new DelimitedDataReader(new DelimitedDataReaderConfiguration
         {
@@ -139,7 +139,7 @@ public class GeolocationSingleSessionManagerTests
         var fixes = parser.GetSessionData().First().TelemetryData.Cast<GeoTelemetryData>().ToList();
 
         var circuitService = new StaticCircuitService();
-        var circuit = circuitService.Detect(fixes[0]).Result;
+        var circuit = await circuitService.Detect(fixes[0]);
 
         var timer = new LapTimerService(new NullLogger<LapTimerService>(), new LapTimerConfig());
         timer.SetCircuit(circuit);
@@ -169,7 +169,7 @@ public class GeolocationSingleSessionManagerTests
 
         public async Task<CircuitConfiguration> Detect(GeoTelemetryData geoLocation)
         {
-            await Task.Delay(10); // resumes on the captured SynchronizationContext, if any
+            await Task.Delay(10).ConfigureAwait(true); // resumes on the captured SynchronizationContext, if any
             return _circuit;
         }
 

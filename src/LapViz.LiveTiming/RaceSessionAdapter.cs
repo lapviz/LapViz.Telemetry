@@ -17,7 +17,7 @@ namespace LapViz.LiveTiming;
 public class RaceSessionAdapter
 {
     private readonly LiveTimingDataView _view;
-    private readonly Dictionary<string, EntrySnapshot> _snapshots = new();
+    private readonly Dictionary<string, EntrySnapshot> _snapshots = new ();
 
     /// <summary>
     /// The <see cref="LiveTimingDataView"/> being populated.
@@ -132,7 +132,7 @@ public class RaceSessionAdapter
         _view.SessionId = sessionId ?? Guid.NewGuid().ToString("N");
     }
 
-    private class EntrySnapshot
+    private sealed class EntrySnapshot
     {
         public int Laps { get; set; }
         public TimeSpan? LastTime { get; set; }

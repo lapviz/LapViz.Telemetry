@@ -1,3 +1,4 @@
+using System.Globalization;
 using LapViz.LiveTiming;
 using LapViz.LiveTiming.Models;
 using LapViz.Telemetry.Abstractions;
@@ -12,6 +13,8 @@ namespace LapViz.Telemetry.CLI.Commands;
 
 public sealed class LaptimerCommand : Command<LaptimerSettings>
 {
+    private const string LapFormat = "m\\:ss\\.fff";
+
     private ILapTimer? _lapTimerService;
     private ITelemetrySensor? _telemetry;
     private ObservableLiveTimingClient? _liveTimingClient;
@@ -61,12 +64,12 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
             _telemetry = new SimulatorGps(driverSessionData, 0, 0);
 
             // Detect circuit
-            foreach (var telemetryData in driverSessionData.TelemetryData)
+            foreach (var geo in driverSessionData.TelemetryData.OfType<GeoTelemetryData>())
             {
-                circuit = await circuitService.Detect(telemetryData as GeoTelemetryData);
+                circuit = await circuitService.Detect(geo).ConfigureAwait(true);
                 if (circuit != null) break;
             }
-            if (circuit == null) throw new Exception("Failed to detect circuit from data");
+            if (circuit == null) throw new InvalidOperationException("Failed to detect circuit from data");
         }
 
         _telemetry.DataReceived += (o, i) => { _lastLocation = i.Message; _lapTimerService!.AddGeolocation(i.Message); };
@@ -74,9 +77,11 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
         _liveTimingClient = new ObservableLiveTimingClient(new NullLogger<ObservableLiveTimingClient>());
         _liveTimingClient.SessionEventReceived += LiveTimingClient_SessionEventReceived;
 
-        var config = new LapTimerConfig() { DeviceId = options.DeviceId };
+        var config = new LapTimerConfig();
+        if (!string.IsNullOrWhiteSpace(options.DeviceId))
+            config.DeviceId = options.DeviceId;
 
-        _lapTimerService = new LapTimerService(null, config);
+        _lapTimerService = new LapTimerService(NullLogger<LapTimerService>.Instance, config);
         _lapTimerService.SetCircuit(circuit);
         _lapTimerService.EventAdded += (o, i) => HandleRaceEvents(i);
         _lapTimerService.Error += (o, i) => HandleError(i);
@@ -109,8 +114,8 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
 
     public static async Task Run(Action action, TimeSpan period, CancellationToken cancellationToken)
     {
-        if (action == null) throw new ArgumentNullException(nameof(action));
-        if (period <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(period));
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(period, TimeSpan.Zero);
 
         var next = DateTimeOffset.UtcNow + period;
 
@@ -163,7 +168,7 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
             {
                 lock (_sessionBestSectorsLock)
                 {
-                    if (!_sessionBestSectors.ContainsKey(eventData.SectorNumber) || _sessionBestSectors[eventData.SectorNumber] > eventData.Time)
+                    if (!_sessionBestSectors.TryGetValue(eventData.SectorNumber, out var bestSector) || bestSector > eventData.Time)
                     {
                         _sessionBestSectors[eventData.SectorNumber] = eventData.Time;
                         UpdateIndicators(_lastSessionEvent);
@@ -187,7 +192,7 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
         {
             _ui.UpdateCurrentLap(
                 _lapTimerService.ActiveSession.LastLap.LapNumber + 1,
-                _lapTimerService.ActiveSession.CurrentLapTime.ToString("m\\:ss\\.fff"));
+                _lapTimerService.ActiveSession.CurrentLapTime.ToString(LapFormat, CultureInfo.InvariantCulture));
         }
 
         string locationString = _lastLocation != null ? $"{_lastLocation.Latitude};{_lastLocation.Longitude}" : "?";
@@ -227,15 +232,15 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
         }
     }
 
-    private void UpdateIndicators(SessionDataEvent sessionEvent)
+    private void UpdateIndicators(SessionDataEvent? sessionEvent)
     {
         if (sessionEvent == null)
             return;
 
         if (sessionEvent.Type == SessionEventType.Sector)
         {
-            TimeSpan? bestSectorTime = _sessionBestSectors.ContainsKey(sessionEvent.Sector)
-                ? _sessionBestSectors[sessionEvent.Sector]
+            TimeSpan? bestSectorTime = _sessionBestSectors.TryGetValue(sessionEvent.Sector, out var sessionBest)
+                ? sessionBest
                 : null;
 
             if (sessionEvent.Time > TimeSpan.Zero)
@@ -245,12 +250,12 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
 
                 if (sessionEvent.DriverRace.BestSectors.TryGetValue(sessionEvent.Sector, out var bestSec) && bestSec != null)
                 {
-                    bestSecText = bestSec.Time.ToString("m\\:ss\\.fff");
+                    bestSecText = bestSec.Time.ToString(LapFormat, CultureInfo.InvariantCulture);
                     bestSecColor = GetConsoleColorFromRaceEvent(bestSec, bestSectorTime);
                 }
 
                 _ui.UpdateSectors(
-                    sessionEvent.Time.ToString("m\\:ss\\.fff"),
+                    sessionEvent.Time.ToString(LapFormat, CultureInfo.InvariantCulture),
                     GetConsoleColorFromRaceEvent(sessionEvent, bestSectorTime),
                     bestSecText,
                     bestSecColor);
@@ -264,9 +269,9 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
             if (last != null && last.Time > TimeSpan.Zero)
             {
                 _ui.UpdateLapTimes(
-                    last.Time.ToString("m\\:ss\\.fff"),
+                    last.Time.ToString(LapFormat, CultureInfo.InvariantCulture),
                     GetConsoleColorFromRaceEvent(last, _sessionBestLap),
-                    best != null ? best.Time.ToString("m\\:ss\\.fff") : "--",
+                    best != null ? best.Time.ToString(LapFormat, CultureInfo.InvariantCulture) : "--",
                     best != null ? GetConsoleColorFromRaceEvent(best, _sessionBestLap) : ConsoleColor.White);
             }
         }
@@ -281,7 +286,7 @@ public sealed class LaptimerCommand : Command<LaptimerSettings>
         try { _ = _liveTimingClient?.DisconnectAsync(); } catch { }
     }
 
-    private ConsoleColor GetConsoleColorFromRaceEvent(SessionDataEvent raceEvent, TimeSpan? bestEvent)
+    private static ConsoleColor GetConsoleColorFromRaceEvent(SessionDataEvent raceEvent, TimeSpan? bestEvent)
     {
         if (!bestEvent.HasValue || bestEvent >= raceEvent.Time || raceEvent.IsPersonalBest)
             return ConsoleColor.Magenta;

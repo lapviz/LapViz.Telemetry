@@ -27,7 +27,7 @@ public class LiveTimingDataRankingRowView : IEquatable<LiveTimingDataRankingRowV
     public TimeSpan? Interval { get; internal set; }
     public LiveTimingDataRankingTableView Table { get; internal set; }
 
-    public bool Equals(LiveTimingDataRankingRowView other)
+    public bool Equals(LiveTimingDataRankingRowView? other)
     {
         if (other == null) return false;
 
@@ -58,7 +58,7 @@ public class LiveTimingDataRankingRowView : IEquatable<LiveTimingDataRankingRowV
         return true;
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         return Equals(obj as LiveTimingDataRankingRowView);
     }
@@ -86,5 +86,4 @@ public class LiveTimingDataRankingRowView : IEquatable<LiveTimingDataRankingRowV
             return hash;
         }
     }
-
 }

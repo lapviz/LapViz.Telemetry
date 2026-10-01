@@ -58,20 +58,20 @@ public class StaticCircuitServiceTests
         }
 
         [Fact]
-        public void Enumerable_BuildsIndex_IgnoresNullsAndEmptyCodes_LastOneWins()
+        public async Task Enumerable_BuildsIndex_IgnoresNullsAndEmptyCodes_LastOneWins()
         {
             var a = MakeCircuit("abc", 50.0, 5.0, 50.01, 5.01);
             var b = MakeCircuit("", 51.0, 6.0, 51.01, 6.01);          // ignored
-            CircuitConfiguration c = null;                             // ignored
+            CircuitConfiguration? c = null;                            // ignored
             var aPrime = MakeCircuit("ABC", 52.0, 7.0, 52.01, 7.01);   // overwrites a because comparer is case-insensitive
 
-            var svc = new StaticCircuitService(new[] { a, b, c, aPrime });
+            var svc = new StaticCircuitService(new[] { a, b, c!, aPrime }); // null entry on purpose
 
             // empty or null codes are ignored
-            Assert.Null(svc.GetByCode("").Result);
+            Assert.Null(await svc.GetByCode(""));
 
             // last one wins behavior
-            var found = svc.GetByCode("abc").Result; // should be aPrime
+            var found = await svc.GetByCode("abc"); // should be aPrime
             Assert.NotNull(found);
             Assert.Equal(aPrime.Center.Latitude, found.Center.Latitude);
             Assert.Equal(aPrime.Center.Longitude, found.Center.Longitude);
@@ -83,75 +83,74 @@ public class StaticCircuitServiceTests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("   ")]
-        public void NullOrWhitespace_ReturnsNull(string code)
+        public async Task NullOrWhitespace_ReturnsNull(string? code)
         {
             var svc = new StaticCircuitService(new List<CircuitConfiguration>());
-            Assert.Null(svc.GetByCode(code).Result);
+            Assert.Null(await svc.GetByCode(code!)); // null on purpose
         }
 
         [Fact]
-        public void IsCaseInsensitive()
+        public async Task IsCaseInsensitive()
         {
             var c = MakeCircuit("Genk", 50.985, 5.561, 50.990, 5.568);
             var svc = new StaticCircuitService(new[] { c });
 
-            Assert.Same(c, svc.GetByCode("genk").Result);
-            Assert.Same(c, svc.GetByCode("GENK").Result);
-            Assert.Same(c, svc.GetByCode("GeNk").Result);
-            Assert.Equal("Genk", svc.GetByCode("GENK").Result.Code);
+            Assert.Same(c, await svc.GetByCode("genk"));
+            Assert.Same(c, await svc.GetByCode("GENK"));
+            Assert.Same(c, await svc.GetByCode("GeNk"));
+            Assert.Equal("Genk", (await svc.GetByCode("GENK")).Code);
         }
 
         [Fact]
-        public void ReturnsNull_WhenNotFound()
+        public async Task ReturnsNull_WhenNotFound()
         {
             var svc = new StaticCircuitService(new List<CircuitConfiguration>());
-            Assert.Null(svc.GetByCode("does-not-exist").Result);
+            Assert.Null(await svc.GetByCode("does-not-exist"));
         }
-
     }
 
     public sealed class Detect
     {
         [Fact]
-        public void ReturnsNull_WhenGeoNull()
+        public async Task ReturnsNull_WhenGeoNull()
         {
             var svc = new StaticCircuitService(new List<CircuitConfiguration>());
-            Assert.Null(svc.Detect(null).Result);
+            Assert.Null(await svc.Detect(null));
         }
 
         [Fact]
-        public void ReturnsNull_WhenNoCircuits()
+        public async Task ReturnsNull_WhenNoCircuits()
         {
             var svc = new StaticCircuitService(new List<CircuitConfiguration>());
-            Assert.Null(svc.Detect(Gps(50.0, 5.0)).Result);
+            Assert.Null(await svc.Detect(Gps(50.0, 5.0)));
         }
 
         [Fact]
-        public void ReturnsCircuit_WhenPointInsideBoundingBox()
+        public async Task ReturnsCircuit_WhenPointInsideBoundingBox()
         {
             var c = MakeCircuit("box", 50.000, 5.000, 50.010, 5.010);
             var svc = new StaticCircuitService(new[] { c });
 
             var inside = Gps(50.005, 5.005);
-            var found = svc.Detect(inside).Result;
+            var found = await svc.Detect(inside);
 
             Assert.Same(c, found);
         }
 
         [Fact]
-        public void ReturnsNull_WhenPointOutsideAllBoundingBoxes()
+        public async Task ReturnsNull_WhenPointOutsideAllBoundingBoxes()
         {
             var c = MakeCircuit("box", 50.000, 5.000, 50.010, 5.010);
             var svc = new StaticCircuitService(new[] { c });
 
             var outside = Gps(49.999, 4.999);
-            var found = svc.Detect(outside).Result;
+            var found = await svc.Detect(outside);
 
             Assert.Null(found);
         }
 
         [Fact]
-        public void RespectsOrder_FirstMatchWins_WhenBoxesOverlap()
+        public async Task RespectsOrder_FirstMatchWins_WhenBoxesOverlap()
         {
             // Overlapping boxes, different codes, order matters
             var first = MakeCircuit("first", 50.000, 5.000, 50.010, 5.010);
@@ -161,28 +160,27 @@ public class StaticCircuitServiceTests
 
             var pointInOverlap = Gps(50.007, 5.007);
 
-            Assert.Same(first, svc1.Detect(pointInOverlap).Result);
-            Assert.Same(second, svc2.Detect(pointInOverlap).Result);
+            Assert.Same(first, await svc1.Detect(pointInOverlap));
+            Assert.Same(second, await svc2.Detect(pointInOverlap));
         }
 
         [Fact]
-        public void GivenCoordinateInsideNandrinCircuit_ReturnsNandrinTest5()
+        public async Task GivenCoordinateInsideNandrinCircuit_ReturnsNandrinTest5()
         {
             ICircuitService circuitService = new StaticCircuitService();
-            CircuitConfiguration circuit = circuitService.Detect(new GeoTelemetryData(50.5018664494456, 5.42528468242706)).Result;
+            CircuitConfiguration circuit = await circuitService.Detect(new GeoTelemetryData(50.5018664494456, 5.42528468242706));
 
             Assert.Equal("nandrintest5", circuit.Code);
         }
 
         [Fact]
-        public void ReturnsNull_WhenOnlyCircuitsWithoutBoundingBox()
+        public async Task ReturnsNull_WhenOnlyCircuitsWithoutBoundingBox()
         {
             var withoutBox = new CircuitConfiguration { Code = "nobox", BoundingBox = null };
             var svc = new StaticCircuitService(new[] { withoutBox });
 
-            Assert.Null(svc.Detect(Gps(50.0, 5.0)).Result);
+            Assert.Null(await svc.Detect(Gps(50.0, 5.0)));
         }
-
     }
 
     public sealed class Sync

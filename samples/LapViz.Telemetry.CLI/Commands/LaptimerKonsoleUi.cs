@@ -40,7 +40,7 @@ public sealed class LaptimerKonsoleUi
 
     public void UpdateCurrentLap(int number, string time)
     {
-        _currentLapNumber.WriteLine(number.ToString());
+        _currentLapNumber.WriteLine(number.ToString(System.Globalization.CultureInfo.InvariantCulture));
         _currentLapTime.WriteLine(time);
     }
 

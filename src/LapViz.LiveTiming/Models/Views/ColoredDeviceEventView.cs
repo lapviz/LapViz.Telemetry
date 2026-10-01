@@ -1,15 +1,16 @@
 using System.Drawing;
+using System.Globalization;
 
 namespace LapViz.LiveTiming.Models.Views;
 
 public class ColoredDeviceEventView : IEquatable<ColoredDeviceEventView>
 {
-    public ColoredDeviceEventView(LiveTimingDataDeviceEventView deviceEvent)
+    public ColoredDeviceEventView(LiveTimingDataDeviceEventView? deviceEvent)
     {
         Event = deviceEvent;
     }
 
-    public LiveTimingDataDeviceEventView Event { get; }
+    public LiveTimingDataDeviceEventView? Event { get; }
     public Color Color
     {
         get
@@ -30,11 +31,11 @@ public class ColoredDeviceEventView : IEquatable<ColoredDeviceEventView>
     public override string ToString()
     {
         return Event != null && Event.Time > TimeSpan.Zero
-            ? Event.Time.ToString("m\\:ss\\.fff")
+            ? Event.Time.ToString("m\\:ss\\.fff", CultureInfo.InvariantCulture)
             : string.Empty;
     }
 
-    public bool Equals(ColoredDeviceEventView other)
+    public bool Equals(ColoredDeviceEventView? other)
     {
         if (other == null)
             return false;
@@ -42,7 +43,7 @@ public class ColoredDeviceEventView : IEquatable<ColoredDeviceEventView>
         return EventEquals(this.Event, other.Event);
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         return Equals(obj as ColoredDeviceEventView);
     }
@@ -52,7 +53,7 @@ public class ColoredDeviceEventView : IEquatable<ColoredDeviceEventView>
         return Event?.GetHashCode() ?? 0;
     }
 
-    private bool EventEquals(LiveTimingDataDeviceEventView a, LiveTimingDataDeviceEventView b)
+    private static bool EventEquals(LiveTimingDataDeviceEventView? a, LiveTimingDataDeviceEventView? b)
     {
         if (a == null && b == null)
             return true;

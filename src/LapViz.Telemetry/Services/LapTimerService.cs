@@ -132,10 +132,8 @@ public class LapTimerService : ILapTimer
     /// <summary>Adds the event to the active session (creating one if needed) and derives lap events.</summary>
     private void RegisterEvent(SessionDataEvent sessionEvent)
     {
-        if (_activeSession == null)
-            CreateSession();
-
-        SessionEventDetection.Register(_activeSession, _circuitConfiguration, sessionEvent, OnEventAdded);
+        var session = _activeSession ?? CreateSession();
+        SessionEventDetection.Register(session, _circuitConfiguration, sessionEvent, OnEventAdded);
     }
 
     /// <summary>Creates a new active session bound to the current circuit.</summary>

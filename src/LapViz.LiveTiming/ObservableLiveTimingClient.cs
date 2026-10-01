@@ -17,24 +17,25 @@ public class ObservableLiveTimingClient : LiveTimingClient
     {
         _lastMessage = sessionDeviceDataEvent;
 
-        if (!Views.ContainsKey(sessionDeviceDataEvent.SessionId))
+        if (!Views.TryGetValue(sessionDeviceDataEvent.SessionId, out var view))
         {
-            Views[sessionDeviceDataEvent.SessionId] = new LiveTimingDataView { SessionId = sessionDeviceDataEvent.SessionId };
+            view = new LiveTimingDataView { SessionId = sessionDeviceDataEvent.SessionId };
+            Views[sessionDeviceDataEvent.SessionId] = view;
         }
 
-        Views[sessionDeviceDataEvent.SessionId].AddDeviceEvents(sessionDeviceDataEvent, false);
+        view.AddDeviceEvents(sessionDeviceDataEvent, false);
 
         base.OnSessionDeviceDataReceived(sessionDeviceDataEvent);
     }
 
     protected override void OnDeviceInfoUpdated(DeviceInfoDto e)
     {
-        if (!Views.ContainsKey(e.SessionId))
+        if (!Views.TryGetValue(e.SessionId, out var view))
         {
-            Views[e.SessionId] = new LiveTimingDataView { SessionId = e.SessionId };
+            view = new LiveTimingDataView { SessionId = e.SessionId };
+            Views[e.SessionId] = view;
         }
 
-        var view = Views[e.SessionId];
         var device = view.Devices.SingleOrDefault(x => x.Id == e.DeviceId);
 
         if (device == null)
@@ -62,29 +63,26 @@ public class ObservableLiveTimingClient : LiveTimingClient
         base.OnBoardUpdated(e);
     }
 
-    private SessionDataDeviceDto _lastMessage = null;
+    private SessionDataDeviceDto _lastMessage;
     public SessionDataDeviceDto LastMessage => _lastMessage;
 
     public Dictionary<string, LiveTimingDataView> Views { get; } = new Dictionary<string, LiveTimingDataView>();
 
     public TimeSpan? GetBestLap(string sessionId)
     {
-        if (!Views.ContainsKey(sessionId)) return null;
-        return Views[sessionId].BestLap?.Time;
+        return Views.TryGetValue(sessionId, out var view) ? view.BestLap?.Time : null;
     }
 
     public TimeSpan? GetBestSector(string sessionId, int sector)
     {
-        if (!Views.ContainsKey(sessionId)) return null;
-        var view = Views[sessionId];
-        if (view.BestSectors == null || !view.BestSectors.ContainsKey(sector)) return null;
-        return view.BestSectors[sector].Time;
+        if (!Views.TryGetValue(sessionId, out var view)) return null;
+        if (view.BestSectors == null || !view.BestSectors.TryGetValue(sector, out var best)) return null;
+        return best.Time;
     }
 
-    public override async Task JoinSession(string sessionId, string password)
+    public override async Task JoinSession(string sessionId, string? password)
     {
-        if (!Views.ContainsKey(sessionId))
-            Views.Add(sessionId, new LiveTimingDataView { SessionId = sessionId });
+        Views.TryAdd(sessionId, new LiveTimingDataView { SessionId = sessionId });
 
         await base.JoinSession(sessionId, password);
     }
@@ -93,7 +91,6 @@ public class ObservableLiveTimingClient : LiveTimingClient
     {
         await base.LeaveSession(sessionId);
 
-        if (Views.ContainsKey(sessionId))
-            Views.Remove(sessionId);
+        Views.Remove(sessionId);
     }
 }

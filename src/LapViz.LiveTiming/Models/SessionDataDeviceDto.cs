@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace LapViz.LiveTiming.Models;
 
 public class SessionDataDeviceDto
@@ -30,7 +32,7 @@ public class SessionDeviceEventDto
     public DateTime? Deleted { get; set; }
     public override string ToString()
     {
-        return $"{Type} > Lap {LapNumber} / Sector {SectorNumber} : {Time.ToString("m\\:ss\\.fff")}";
+        return $"{Type} > Lap {LapNumber} / Sector {SectorNumber} : {Time.ToString("m\\:ss\\.fff", CultureInfo.InvariantCulture)}";
     }
 }
 

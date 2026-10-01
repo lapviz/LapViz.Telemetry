@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 
 namespace LapViz.LiveTiming.Models.Views;
 
@@ -300,7 +301,7 @@ public class LiveTimingDataView : INotifyPropertyChanged
         }
     }
 
-    public LiveTimingDataRankingTableView GetRanking(LiveTimingDataRankingType type, LiveTimingDataRankingTableView previousRanking = null)
+    public LiveTimingDataRankingTableView GetRanking(LiveTimingDataRankingType type, LiveTimingDataRankingTableView? previousRanking = null)
     {
         lock (_addEventLock)
         {
@@ -362,7 +363,7 @@ public class LiveTimingDataView : INotifyPropertyChanged
                     .Where(e => e.Type == LiveTimingDataDeviceEventType.Lap && e.Deleted == null)
                     .OrderByDescending(e => e.Timestamp)
                     .FirstOrDefault();
-                row.Laps = lastLapEvent != null ? lastLapEvent.Lap.ToString() : "";
+                row.Laps = lastLapEvent != null ? lastLapEvent.Lap.ToString(CultureInfo.InvariantCulture) : "";
 
                 // Total number of sectors to display for the table
                 var totalSectors = newRankingTable.Sectors ?? 3;
@@ -459,11 +460,15 @@ public class LiveTimingDataView : INotifyPropertyChanged
     private DateTime _updated;
     public DateTime Updated
     {
-        get { return _updated; }
+        get
+        {
+            return _updated;
+        }
+
         set
         {
             _updated = value;
-            OnPropertyChanged("Updated");
+            OnPropertyChanged(nameof(Updated));
         }
     }
 
@@ -478,5 +483,5 @@ public class LiveTimingDataView : INotifyPropertyChanged
         var handler = PropertyChanged;
         if (handler != null) handler(this, new PropertyChangedEventArgs(propertyName));
     }
-    public event PropertyChangedEventHandler PropertyChanged;
+    public event PropertyChangedEventHandler? PropertyChanged;
 }

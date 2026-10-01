@@ -4,7 +4,6 @@ public class GetSessionDataRequestDto
 {
     public string SessionId { get; set; }
     public DateTimeOffset Timestamp { get; set; }
-
 }
 
 public class SessionDataDto

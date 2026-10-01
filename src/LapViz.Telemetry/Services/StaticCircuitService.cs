@@ -167,7 +167,7 @@ public class StaticCircuitService : ICircuitService
             Code = OptString(e, "code"),
             CountryCode = OptString(e, "country"),
             Type = e.TryGetProperty("type", out var type)
-                ? (CircuitType)Enum.Parse(typeof(CircuitType), type.GetString(), ignoreCase: false)
+                ? (CircuitType)Enum.Parse(typeof(CircuitType), type.GetString() ?? nameof(CircuitType.Closed), ignoreCase: false)
                 : CircuitType.Closed,
             UseDirection = e.TryGetProperty("useDirection", out var useDirection) && useDirection.GetBoolean(),
             SectorTimeout = e.TryGetProperty("sectorTimeout", out var sectorTimeout) ? sectorTimeout.GetInt32() : 0,
