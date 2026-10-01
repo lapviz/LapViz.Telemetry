@@ -2,32 +2,6 @@ using System;
 using System.Threading;
 
 namespace LapViz.Telemetry.Domain;
-///
-/// <para><b>Bit layout (MSB → LSB):</b></para>
-/// <code>
-/// ┌──────────────────────────────────────────┬──────────────────────┐
-/// │  42 bits: ms since 2024-01-01 UTC epoch  │  22 bits: random     │
-/// └──────────────────────────────────────────┴──────────────────────┘
-/// </code>
-///
-/// <para><b>Design rationale:</b></para>
-/// <list type="bullet">
-///   <item><b>8 bytes</b> — 50% smaller than a 16-byte Guid; reduces network payload and
-///   hash-table memory in high-throughput telemetry scenarios.</item>
-///   <item><b>Time-ordered</b> — IDs are monotonically sortable by creation time, enabling
-///   efficient binary search in event logs and B-tree friendly storage.</item>
-///   <item><b>~4 million unique IDs per millisecond</b> — 22 random bits provide sufficient
-///   entropy for racing telemetry (~tens of events/sec/device across hundreds of nodes).</item>
-///   <item><b>No coordination</b> — each node generates independently; no distributed counter
-///   or lock needed. Collisions are statistically negligible at expected event rates.</item>
-///   <item><b>Embedded timestamp</b> — the creation time can be recovered via
-///   <see cref="Timestamp"/> without storing a separate field.</item>
-/// </list>
-///
-/// <para><b>Wire format:</b> <see cref="ToString"/> produces an 11-character Base64url string
-/// (no padding, URL-safe). Use <see cref="Parse"/> to reconstruct.</para>
-///
-
 
 /// <summary>
 /// A compact 64-bit, time-ordered unique identifier inspired by UUIDv7 (RFC 9562).
@@ -56,9 +30,11 @@ namespace LapViz.Telemetry.Domain;
 /// <para><b>Wire format:</b> <see cref="ToString"/> produces an 11-character Base64url string
 /// (no padding, URL-safe). Use <see cref="Parse"/> to reconstruct.</para>
 ///
-/// <para><b>Collision probability:</b> For N events in the same millisecond across all nodes,
-/// P(collision) ≈ N² / 2^23. At 100 events/ms (extreme), P ≈ 0.0012 — acceptable for
-/// telemetry. If exact guarantees are required, combine with a node-specific prefix.</para>
+/// <para><b>Uniqueness:</b> within a process, IDs are strictly increasing (monotonic, like
+/// UUIDv7 "method 3"): when two IDs fall in the same millisecond the later one is the previous
+/// value + 1, so a process never generates duplicates. Across nodes, for N events in the same
+/// millisecond, P(collision) ≈ N² / 2^23. If exact guarantees are required, combine with a
+/// node-specific prefix.</para>
 /// </summary>
 public readonly struct CompactEventId : IEquatable<CompactEventId>, IComparable<CompactEventId>
 {
@@ -77,6 +53,9 @@ public readonly struct CompactEventId : IEquatable<CompactEventId>, IComparable<
         Interlocked.Increment(ref _seed) ^ Environment.TickCount));
     private static int _seed = Environment.TickCount;
 
+    // Last value handed out by this process; guarantees strictly increasing IDs
+    private static long _last;
+
     // ─── Instance state ──────────────────────────────────────────────────
 
     /// <summary>
@@ -91,14 +70,23 @@ public readonly struct CompactEventId : IEquatable<CompactEventId>, IComparable<
 
     /// <summary>
     /// Generates a new time-ordered compact ID using the current UTC time.
-    /// Thread-safe — can be called concurrently from multiple threads without locks.
+    /// Thread-safe and lock-free; IDs from one process are unique and strictly increasing.
     /// </summary>
     public static CompactEventId NewId()
     {
         var ms = (long)(DateTimeOffset.UtcNow - Epoch).TotalMilliseconds;
         var rand = Rng.Next(0, 1 << RandomBits);
-        var value = (ms << RandomBits) | (long)(rand & RandomMask);
-        return new CompactEventId(value);
+        var candidate = (ms << RandomBits) | (long)(rand & RandomMask);
+
+        while (true)
+        {
+            var last = Volatile.Read(ref _last);
+
+            // Same millisecond (or clock moved back): continue after the previous value
+            var next = candidate > last ? candidate : last + 1;
+            if (Interlocked.CompareExchange(ref _last, next, last) == last)
+                return new CompactEventId(next);
+        }
     }
 
     /// <summary>

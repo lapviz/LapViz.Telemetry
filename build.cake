@@ -58,6 +58,8 @@ Task("Test")
         NoLogo = true,
         NoRestore = true,
         NoBuild = true,
+        Collectors = new[] { "XPlat Code Coverage" },
+        ResultsDirectory = "./.artifacts/coverage",
     });
 });
 

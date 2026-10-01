@@ -59,6 +59,17 @@ public class SessionDataSyncTests
         }
 
         [Fact]
+        public void NewId_Is_Unique_And_Increasing_Under_Concurrency()
+        {
+            var perThread = Enumerable.Range(0, 4).AsParallel()
+                .Select(_ => Enumerable.Range(0, 50_000).Select(_ => CompactEventId.NewId().Value).ToList())
+                .ToList();
+
+            Assert.All(perThread, ids => Assert.True(ids.Zip(ids.Skip(1), (a, b) => a < b).All(x => x)));
+            Assert.Equal(200_000, perThread.SelectMany(x => x).Distinct().Count());
+        }
+
+        [Fact]
         public void Ids_Are_Time_Ordered()
         {
             var first = CompactEventId.NewId();

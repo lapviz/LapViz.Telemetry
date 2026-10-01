@@ -1,6 +1,9 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: Pull Request
-on: pull_request
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
 
 env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
@@ -34,6 +37,14 @@ jobs:
         run: |
           dotnet tool restore
           dotnet cake
+
+      - name: Upload Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: .artifacts/coverage/**/coverage.cobertura.xml
+          if-no-files-found: ignore
 
       - name: Upload Verify Test Results
         if: failure()

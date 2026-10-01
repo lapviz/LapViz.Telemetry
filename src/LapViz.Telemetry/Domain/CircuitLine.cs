@@ -78,8 +78,6 @@ public class CircuitGeoLine
         if (ratio > 1.0) return 1.0;
 
         return ratio;
-    ///
-
     }
 
     /// <summary>
@@ -91,35 +89,7 @@ public class CircuitGeoLine
     /// Use this when you want to know "where along the segment" p is located,
     /// for example when interpolating lap position or progress along a track section.
     /// </summary>
-    public double ProjectionFactor(GeoCoordinates p)
-    {
-        // Treat latitude/longitude as a 2D plane for local projection.
-        // Acceptable approximation for small distances.
-        double x1 = Start.Latitude, y1 = Start.Longitude;
-        double x2 = End.Latitude, y2 = End.Longitude;
-        double xp = p.Latitude, yp = p.Longitude;
-
-        // Segment direction vector
-        double dx = x2 - x1;
-        double dy = y2 - y1;
-
-        // Squared length of the segment
-        double len2 = dx * dx + dy * dy;
-
-        // Degenerate case: Start and End are (almost) identical
-        if (len2 <= double.Epsilon)
-            return 0.0;
-
-        // Parametric projection of p onto the line through [Start, End]
-        // Formula: t = ((p - Start) · (End - Start)) / |End - Start|²
-        double t = ((xp - x1) * dx + (yp - y1) * dy) / len2;
-
-        // Clamp to [0,1] to keep within the segment
-        if (t < 0.0) return 0.0;
-        if (t > 1.0) return 1.0;
-
-        return t;
-    }
+    public double ProjectionFactor(GeoCoordinates p) => ParameterOf(p);
 
     /// <summary>
     /// Approximate segment length in meters using the GeoCoordinates distance method.
@@ -230,14 +200,21 @@ public class CircuitGeoLine
     /// Parametric projection of p on this segment clamped to [0,1].
     /// 0 maps to Start, 1 maps to End.
     /// </summary>
+    /// <remarks>
+    /// Uses a local equirectangular projection: longitude differences are scaled by cos(latitude)
+    /// so that distances are isotropic (a degree of longitude is shorter than a degree of latitude
+    /// away from the equator). For points lying on the segment, such as a crossing point, the
+    /// result is the same as in raw latitude/longitude space.
+    /// </remarks>
     public double ParameterOf(GeoCoordinates p)
     {
-        double x1 = Start.Latitude, y1 = Start.Longitude;
-        double x2 = End.Latitude, y2 = End.Longitude;
+        var lonScale = Math.Cos((Start.Latitude + End.Latitude) * 0.5 * Math.PI / 180.0);
+        double x1 = Start.Latitude, y1 = Start.Longitude * lonScale;
+        double x2 = End.Latitude, y2 = End.Longitude * lonScale;
         double dx = x2 - x1, dy = y2 - y1;
         double len2 = dx * dx + dy * dy;
         if (len2 <= double.Epsilon) return 0.0;
-        double t = ((p.Latitude - x1) * dx + (p.Longitude - y1) * dy) / len2;
+        double t = ((p.Latitude - x1) * dx + (p.Longitude * lonScale - y1) * dy) / len2;
         if (t < 0) return 0;
         if (t > 1) return 1;
         return t;

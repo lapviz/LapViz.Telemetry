@@ -53,6 +53,22 @@ public class CircuitGeoLineTests
 
             Assert.InRange(len, 100.0, 120.0);
         }
+
+        [Fact]
+        public void DistanceTo_Is_Accurate_For_Short_Distances()
+        {
+            // 1e-6 degree of latitude ≈ 0.1112 m; the law of cosines returned 0 or noise here
+            var meters = G(50.0, 5.0).DistanceTo(G(50.000001, 5.0)) * 1000.0;
+            Assert.InRange(meters, 0.111, 0.1113);
+        }
+
+        [Fact]
+        public void DistanceTo_Matches_Previous_Earth_Model_For_Long_Distances()
+        {
+            // 1 degree of latitude = 60 * 1.1515 miles = 111.1896 km with the library's Earth model
+            Assert.Equal(111.1896, G(0, 0).DistanceTo(G(1, 0)), 3);
+            Assert.Equal(69.09, G(0, 0).DistanceTo(G(1, 0), 'M'), 2);
+        }
     }
 
     public sealed class BoundingBox
@@ -128,6 +144,24 @@ public class CircuitGeoLineTests
                 Assert.Equal(t1, t2, 12);
                 Assert.InRange(t2, 0.0, 1.0);
             }
+        }
+
+        [Fact]
+        public void ParameterOf_Accounts_For_Longitude_Shrinking_With_Latitude()
+        {
+            // At 60°N a degree of longitude is half a degree of latitude.
+            // Segment goes north; p is 1 m north of Start and 1 m east (offset in lon = 2x in lat degrees).
+            var l = new CircuitGeoLine(G(60.0, 5.0), G(60.001, 5.0));
+            var offsetLat = 0.0001;
+            var p = G(60.0 + offsetLat, 5.0 + 2 * offsetLat);
+
+            // Perpendicular offset must not change the projection along a north-south segment
+            Assert.Equal(0.1, l.ParameterOf(p), 6);
+
+            // Diagonal segment that is truly 45° on the ground: equal metric steps north and east
+            var diag = new CircuitGeoLine(G(60.0, 5.0), G(60.001, 5.002));
+            Assert.Equal(0.5, diag.ParameterOf(G(60.0005, 5.001)), 6); // point on the segment
+            Assert.Equal(0.5, diag.ParameterOf(G(60.001, 5.0)), 3);   // perpendicular foot is the midpoint
         }
     }
 
