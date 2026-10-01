@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Resources\GenkSessionWithPit.csv" />
-    <EmbeddedResource Include="Resources\MariembourgSessionWithPit.csv" />
+    <EmbeddedResource Include="Resources\circuits.json" />
+    <EmbeddedResource Include="Resources\GenkSessionWithPit.csv.gz" />
   </ItemGroup>
 
   <ItemGroup>
