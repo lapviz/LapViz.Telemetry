@@ -119,7 +119,7 @@ public class GeolocationSingleSessionManager
 
         // Circuit detection is async; run it on the thread pool so blocking here can never
         // deadlock a caller that owns a synchronization context (UI thread).
-        CircuitConfiguration detected = null;
+        CircuitConfiguration? detected = null;
         var checkCircuit = ShouldCheckCircuit(geoTelemetryData);
         if (checkCircuit)
             detected = Task.Run(() => _circuitService.Detect(geoTelemetryData)).GetAwaiter().GetResult();
@@ -136,7 +136,7 @@ public class GeolocationSingleSessionManager
         if (geoTelemetryData == null) return;
         cancellationToken.ThrowIfCancellationRequested();
 
-        CircuitConfiguration detected = null;
+        CircuitConfiguration? detected = null;
         var checkCircuit = ShouldCheckCircuit(geoTelemetryData);
         if (checkCircuit)
             detected = await _circuitService.Detect(geoTelemetryData).ConfigureAwait(false);
@@ -151,7 +151,7 @@ public class GeolocationSingleSessionManager
             return _circuit == null || _lastCircuitCheck + TimeSpan.FromSeconds(2) <= sample.Timestamp;
     }
 
-    private void Process(GeoTelemetryData geoTelemetryData, bool circuitChecked, CircuitConfiguration detected)
+    private void Process(GeoTelemetryData geoTelemetryData, bool circuitChecked, CircuitConfiguration? detected)
     {
         lock (_sync)
         {
@@ -220,7 +220,7 @@ public class GeolocationSingleSessionManager
     /// Create a new current session bound to the current circuit and identity.
     /// Raises <see cref="DriverSessionStarted"/>.
     /// </summary>
-    private void CreateSession(DateTimeOffset telemetryTimestamp)
+    private DeviceSessionData CreateSession(DateTimeOffset telemetryTimestamp)
     {
         var session = new DeviceSessionData
         {
@@ -236,6 +236,7 @@ public class GeolocationSingleSessionManager
         _currentDriverSessionData = session;
         _currentSessionStart = telemetryTimestamp;
         OnDriverSessionStarted(session);
+        return session;
     }
 
     /// <summary>
@@ -314,10 +315,8 @@ public class GeolocationSingleSessionManager
     private void RegisterEvent(SessionDataEvent sessionDataEvent, DateTimeOffset telemetryTimestamp)
     {
         // Ensure we have an active session
-        if (_currentDriverSessionData == null)
-            CreateSession(telemetryTimestamp);
-
-        SessionEventDetection.Register(_currentDriverSessionData, _circuit, sessionDataEvent, OnSessionEventAdded);
+        var session = _currentDriverSessionData ?? CreateSession(telemetryTimestamp);
+        SessionEventDetection.Register(session, _circuit, sessionDataEvent, OnSessionEventAdded);
     }
 
     /// <summary>

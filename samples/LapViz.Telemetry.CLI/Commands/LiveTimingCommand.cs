@@ -1,3 +1,4 @@
+using System.Globalization;
 using LapViz.LiveTiming;
 using LapViz.LiveTiming.Models;
 using LapViz.LiveTiming.Models.Views;
@@ -155,11 +156,11 @@ public sealed class LiveTimingCommand : Command<LiveTimingSettings>
             {
                 var cells = new List<string>
                 {
-                    row.Rank.ToString(),
+                    row.Rank.ToString(CultureInfo.InvariantCulture),
                     GetRankChangeString(row.DeviceId, row.RankChange),
                     row.DeviceId,
                     row.DisplayName,
-                    row.LastLap != null && row.LastLap.Event != null ? row.LastLap.Event.Lap.ToString() : "0"
+                    row.LastLap != null && row.LastLap.Event != null ? row.LastLap.Event.Lap.ToString(CultureInfo.InvariantCulture) : "0"
                 };
 
                 for (int s = 1; s <= _currentRanking.Sectors; s++)
@@ -170,8 +171,8 @@ public sealed class LiveTimingCommand : Command<LiveTimingSettings>
                         cells.Add(string.Empty);
                 }
 
-                cells.Add($"[{HexConverter(row.LastLap.Color)}]{row.LastLap}[/]");
-                cells.Add($"[{HexConverter(row.BestLap.Color)}]{row.BestLap}[/]");
+                cells.Add(ColoredCell(row.LastLap));
+                cells.Add(ColoredCell(row.BestLap));
                 cells.Add(FormattingHelper.GetFormattedTime(row.Gap, "-", true));
                 cells.Add(FormattingHelper.GetFormattedTime(row.Interval, "-", true));
 
@@ -199,6 +200,9 @@ public sealed class LiveTimingCommand : Command<LiveTimingSettings>
     }
 
     private static string HexConverter(System.Drawing.Color color) => $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+
+    private static string ColoredCell(ColoredDeviceEventView? cell)
+        => cell == null ? string.Empty : $"[{HexConverter(cell.Color)}]{cell}[/]";
 
     private string GetRankChangeString(string deviceId, int? currentDelta)
     {
@@ -300,13 +304,13 @@ public sealed class LiveTimingCommand : Command<LiveTimingSettings>
                         continue;
 
                     var deviceId = parts[0];
-                    var tsMs = Convert.ToInt64(parts[1]); // offset in ms from file reference "start
+                    var tsMs = Convert.ToInt64(parts[1], CultureInfo.InvariantCulture); // offset in ms from file reference "start
                     var dtoType = parts[2] == "Lap" ? SessionEventTypeDto.Lap : SessionEventTypeDto.Sector;
-                    var lapNumber = Convert.ToInt32(parts[3]);
-                    var sectorNumber = Convert.ToInt32(parts[4]);
+                    var lapNumber = Convert.ToInt32(parts[3], CultureInfo.InvariantCulture);
+                    var sectorNumber = Convert.ToInt32(parts[4], CultureInfo.InvariantCulture);
 
                     // TimeFull is "ticks/10000", i.e. milliseconds * 1000 * 10
-                    var timeFull = TimeSpan.FromMilliseconds(Convert.ToInt64(parts[5]) / 10000d);
+                    var timeFull = TimeSpan.FromMilliseconds(Convert.ToInt64(parts[5], CultureInfo.InvariantCulture) / 10000d);
 
                     var isPersonnalBest = parts[7] != "False";
                     var isBestOverall = parts[8] != "False";
@@ -344,7 +348,7 @@ public sealed class LiveTimingCommand : Command<LiveTimingSettings>
                 var dueAt = start.AddMilliseconds(deltaMs).Add(deviceOffset);
                 var delay = dueAt - DateTimeOffset.UtcNow;
                 if (delay > TimeSpan.Zero)
-                    await Task.Delay(delay, ct);
+                    await Task.Delay(delay, ct).ConfigureAwait(false);
 
                 // Reconstruct the base for the event:
                 // Ev(...) constructs Timestamp = base + duration, so to obtain a Timestamp "ts",

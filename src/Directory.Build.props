@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <PropertyGroup Label="Settings">
     <Deterministic>true</Deterministic>
     <LangVersion>12</LangVersion>
@@ -18,6 +18,8 @@
   </PropertyGroup>
   <PropertyGroup Label="Deterministic Build" Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <!-- The build is warning-free; keep it that way on CI without blocking local iterations -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup Condition="$(IsPackable)">
     <None Include="$(MSBuildThisFileDirectory)../resources/nuget/logo.png">

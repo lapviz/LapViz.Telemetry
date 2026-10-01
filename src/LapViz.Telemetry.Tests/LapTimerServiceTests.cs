@@ -228,7 +228,7 @@ public class LapTimerServiceTests
             svc.AddGeolocation(p1);
             svc.AddGeolocation(p2);
 
-            Assert.True(added.Any(e => e.Type == SessionEventType.Position));
+            Assert.Contains(added, e => e.Type == SessionEventType.Position);
         }
 
         [Fact]
@@ -588,7 +588,7 @@ public class LapTimerServiceTests
                 Path.Combine(AppContext.BaseDirectory, "runs", "MariembourgFreeTests.csv");
 
         [Fact]
-        public void LapTimerService_Produces_Expected_Events_And_Lap_Time_On_Mariembourg_FreeTests_CSV()
+        public async Task LapTimerService_Produces_Expected_Events_And_Lap_Time_On_Mariembourg_FreeTests_CSV()
         {
             Assert.True(File.Exists(AssetCsvPath), $"CSV not found at {AssetCsvPath}");
 
@@ -607,7 +607,7 @@ public class LapTimerServiceTests
             var logger = new NullLogger<LapTimerService>();
 
             var circuitService = new StaticCircuitService();
-            var circuit = circuitService.Detect(driverRace.TelemetryData.First() as GeoTelemetryData).Result;
+            var circuit = await circuitService.Detect((GeoTelemetryData)driverRace.TelemetryData.First());
             Assert.NotNull(circuit);
 
             var lapTimer = new LapTimerService(logger, config);

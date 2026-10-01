@@ -151,8 +151,8 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
             UserLeft?.Invoke(this, connectionId);
         });
 
-        _connection.Reconnected += _connection_Reconnected;
-        _connection.Reconnecting += _connection_Reconnecting;
+        _connection.Reconnected += OnConnectionReconnected;
+        _connection.Reconnecting += OnConnectionReconnecting;
         _connection.Closed += async (error) =>
         {
             UpdateState();
@@ -169,7 +169,7 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
         _logger.LogInformation("Connection state changed: {State}", State);
     }
 
-    private Task _connection_Reconnecting(Exception arg)
+    private Task OnConnectionReconnecting(Exception? arg)
     {
         _logger.LogDebug("Reconnecting");
         UpdateState();
@@ -177,7 +177,7 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
         return Task.CompletedTask;
     }
 
-    private async Task _connection_Reconnected(string arg)
+    private async Task OnConnectionReconnected(string? arg)
     {
         _logger.LogDebug("Reconnected");
         UpdateState();
@@ -230,13 +230,13 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
             _logger.LogDebug("Creating session");
 
             if (_connection == null || _connection.State != HubConnectionState.Connected)
-                throw new Exception("Can't create session: not connected");
+                throw new InvalidOperationException("Can't create session: not connected");
 
             var sessionId = await _connection.InvokeAsync<string>("CreateSession", createRequestDto);
             if (string.IsNullOrWhiteSpace(sessionId))
             {
                 OnError("CreateSessionFailed", "Server returned an error");
-                throw new Exception("Failed to join session. Server returned an error");
+                throw new InvalidOperationException("Failed to create session. Server returned an error");
             }
 
             _logger.LogInformation("Session {sessionId} created", sessionId);
@@ -259,13 +259,13 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
             _logger.LogDebug("Getting circuit session code");
 
             if (_connection == null || _connection.State != HubConnectionState.Connected)
-                throw new Exception("Can't get circuit public session: not connected");
+                throw new InvalidOperationException("Can't get circuit public session: not connected");
 
             var sessionId = await _connection.InvokeAsync<string>("GetCircuitPublicSession", circuitCode);
             if (string.IsNullOrWhiteSpace(sessionId))
             {
                 OnError("GetCircuitPublicSessionFailed", "Server returned an error");
-                throw new Exception("Failed get circuit public session. Server returned an error");
+                throw new InvalidOperationException("Failed to get circuit public session. Server returned an error");
             }
 
             _logger.LogInformation("Session {sessionId} retrieved", sessionId);
@@ -281,7 +281,7 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
         }
     }
 
-    public virtual async Task JoinSession(string sessionId, string password)
+    public virtual async Task JoinSession(string sessionId, string? password)
     {
         try
         {
@@ -291,7 +291,7 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
             {
                 var result = await _connection.InvokeAsync<bool>("JoinSession", sessionId, password);
                 if (!result)
-                    throw new Exception("Failed to join session. Server returned an error");
+                    throw new InvalidOperationException("Failed to join session. Server returned an error");
 
                 if (!JoinedSessions.ContainsKey(sessionId))
                     JoinedSessions.Add(sessionId, password);
@@ -318,7 +318,7 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
             {
                 var result = await _connection.InvokeAsync<bool>("LeaveSession", sessionId);
                 if (!result)
-                    throw new Exception("Failed to leave session. Server returned an error");
+                    throw new InvalidOperationException("Failed to leave session. Server returned an error");
 
                 if (JoinedSessions.ContainsKey(sessionId))
                     JoinedSessions.Remove(sessionId);
@@ -417,7 +417,7 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
                 {
                     var result = await _connection.InvokeAsync<bool>("addEventData", data, linkedCts.Token);
                     if (!result)
-                        throw new Exception("Failed to add events to server. Server returned an error.");
+                        throw new InvalidOperationException("Failed to add events to server. Server returned an error.");
                     MessagesSent++;
                     _logger.LogDebug("Data sent successfully.");
                     return;
@@ -531,9 +531,9 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
 
     #region Properties
 
-    public IDictionary<string, string> JoinedSessions { get; private set; } = new Dictionary<string, string>();
+    public IDictionary<string, string?> JoinedSessions { get; private set; } = new Dictionary<string, string?>();
 
-    private int _queueSize = 0;
+    private int _queueSize;
     public int QueueSize
     {
         get => _queueSize;
@@ -628,8 +628,8 @@ public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyCh
     public event EventHandler<string> UserJoined;
     public event EventHandler<string> UserLeft;
 
-    public event PropertyChangedEventHandler PropertyChanged;
-    protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }

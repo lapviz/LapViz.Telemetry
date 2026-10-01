@@ -7,7 +7,7 @@ using Spectre.Console.Cli;
 
 namespace LapViz.Telemetry.CLI;
 
-internal class Program
+internal sealed class Program
 {
     public static int Main(string[] args)
     {
@@ -200,9 +200,10 @@ file sealed class TypeResolver : ITypeResolver, IDisposable
         _scope = _provider.CreateScope();
     }
 
-    public object? Resolve(Type type)
-        => _scope.ServiceProvider.GetService(type)
-           ?? ActivatorUtilities.CreateInstance(_scope.ServiceProvider, type);
+    public object? Resolve(Type? type)
+        => type == null
+            ? null
+            : _scope.ServiceProvider.GetService(type) ?? ActivatorUtilities.CreateInstance(_scope.ServiceProvider, type);
 
     public void Dispose()
     {

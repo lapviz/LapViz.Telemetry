@@ -248,3 +248,19 @@ dotnet_diagnostic.CA1510.severity = none
 
 # RCS1079: NotImplementedException is intentional for stub interface members
 dotnet_diagnostic.RCS1079.severity = none
+
+[LapViz.LiveTiming/**.cs]
+# CA2007: ConfigureAwait. LiveTimingClient raises ConnectionStateChanged/PropertyChanged after awaits;
+# MAUI consumers update UI directly in those handlers, so continuations must stay on the caller's context.
+dotnet_diagnostic.CA2007.severity = none
+
+[LapViz.Telemetry.Tests/**.cs]
+# Test code favors readable inline data over production style rules:
+# multi-line arguments and nested test classes (SA1116, SA1118, RCS1102), aligned literals (SA1025),
+# culture-neutral fixtures (CA1305) and awaits without ConfigureAwait (CA2007, xUnit sync context).
+dotnet_diagnostic.SA1116.severity = none
+dotnet_diagnostic.SA1118.severity = none
+dotnet_diagnostic.RCS1102.severity = none
+dotnet_diagnostic.SA1025.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA2007.severity = none

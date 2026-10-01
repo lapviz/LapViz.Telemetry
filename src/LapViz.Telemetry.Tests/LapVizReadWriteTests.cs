@@ -27,7 +27,7 @@ public class LapVizReadWriteTests
         var csv = LoadCsvSession();
 
         var circuit = new StaticCircuitService()
-            .Detect(csv.TelemetryData.First() as GeoTelemetryData).Result;
+            .Detect((GeoTelemetryData)csv.TelemetryData.First()).GetAwaiter().GetResult();
         Assert.NotNull(circuit);
 
         var cfg = new LapTimerConfig
