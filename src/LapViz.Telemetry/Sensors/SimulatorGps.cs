@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -217,7 +218,7 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
         try
         {
             // Default embedded sample (kept from your original code)
-            const string resourceName = "LapViz.Telemetry.Resources.GenkSessionWithPit.csv";
+            const string resourceName = "LapViz.Telemetry.Resources.GenkSessionWithPit.csv.gz";
             var assembly = Assembly.GetExecutingAssembly();
 
             using (var stream = assembly.GetManifestResourceStream(resourceName))
@@ -225,7 +226,8 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
                 if (stream == null)
                     throw new FileNotFoundException("Embedded resource not found.", resourceName);
 
-                using (var reader = new StreamReader(stream))
+                using (var gzip = new GZipStream(stream, CompressionMode.Decompress))
+                using (var reader = new StreamReader(gzip))
                 {
                     await ProcessStreamAsync(reader, ct).ConfigureAwait(false);
                 }
