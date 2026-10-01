@@ -123,7 +123,6 @@ internal static class SessionEventDetection
             }
 
             var lapEvent = (SessionDataEvent)sessionEvent.Clone();
-            lapEvent.EventId = CompactEventId.NewId();
             lapEvent.Type = SessionEventType.Lap;
             lapEvent.Sector = 0;
             lapEvent.Time = lapTime;

@@ -51,7 +51,8 @@ public class GeoCoordinates : ICloneable
     }
 
     /// <summary>
-    /// Computes the great-circle distance between this point and another using the spherical law of cosines.
+    /// Computes the great-circle distance between this point and another using the haversine formula,
+    /// which stays accurate down to centimeters (the law of cosines loses precision below a few meters).
     /// </summary>
     /// <param name="intersect">The other coordinate.</param>
     /// <param name="unit">
@@ -66,20 +67,18 @@ public class GeoCoordinates : ICloneable
         // Convert degrees to radians
         var rlat1 = Math.PI * Latitude / 180;
         var rlat2 = Math.PI * intersect.Latitude / 180;
-        var theta = Longitude - intersect.Longitude;
-        var rtheta = Math.PI * theta / 180;
+        var dlat = rlat2 - rlat1;
+        var dlon = Math.PI * (intersect.Longitude - Longitude) / 180;
 
-        // Apply spherical law of cosines
-        var dist = Math.Sin(rlat1) * Math.Sin(rlat2) +
-                   Math.Cos(rlat1) * Math.Cos(rlat2) * Math.Cos(rtheta);
+        // Haversine
+        var sinDlat = Math.Sin(dlat / 2);
+        var sinDlon = Math.Sin(dlon / 2);
+        var h = sinDlat * sinDlat + Math.Cos(rlat1) * Math.Cos(rlat2) * sinDlon * sinDlon;
+        if (h > 1.0) h = 1.0; // numerical safety
+        var centralAngle = 2 * Math.Asin(Math.Sqrt(h));
 
-        // Numerical safety
-        if (dist > 1.0) dist = 1.0;
-        if (dist < -1.0) dist = -1.0;
-
-        dist = Math.Acos(dist);
-        dist = dist * 180 / Math.PI;
-        dist = dist * 60 * 1.1515; // distance in miles
+        // Same Earth model as before (60 * 1.1515 miles per degree), so results stay consistent
+        var dist = centralAngle * 180 / Math.PI * 60 * 1.1515; // distance in miles
 
         // Convert units
         switch (unit)
