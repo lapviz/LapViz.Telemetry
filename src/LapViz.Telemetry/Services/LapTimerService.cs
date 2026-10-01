@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Reflection;
 using System.Threading;
 using LapViz.Telemetry.Abstractions;
@@ -14,6 +13,8 @@ namespace LapViz.Telemetry.Services;
 /// <summary>
 /// Takes geolocation fixes and a circuit configuration as input and produces a session
 /// made of sector/lap (and optional position) events.
+/// Thread-safety: all public members are synchronized, so fixes can be fed from a background thread.
+/// Event handlers are invoked on the feeding thread while the internal lock is held.
 /// </summary>
 public class LapTimerService : ILapTimer
 {
@@ -23,6 +24,9 @@ public class LapTimerService : ILapTimer
 
     private CircuitConfiguration _circuitConfiguration;
     private DeviceSessionData _activeSession;
+
+    // Guards all mutable state; public members can be called from any thread
+    private readonly object _sync = new object();
 
     // 0 = running, 1 = paused (use Interlocked)
     private int _detectionPaused = 1;
@@ -43,14 +47,20 @@ public class LapTimerService : ILapTimer
     public bool IsRunning => _detectionPaused != 1;
 
     /// <summary>Current circuit used for event detection.</summary>
-    public CircuitConfiguration CircuitConfiguration => _circuitConfiguration;
+    public CircuitConfiguration CircuitConfiguration
+    {
+        get { lock (_sync) return _circuitConfiguration; }
+    }
 
     /// <summary>Sets/replaces the circuit. Closes any active session.</summary>
     public void SetCircuit(CircuitConfiguration circuitConfiguration)
     {
         if (circuitConfiguration == null) throw new ArgumentNullException(nameof(circuitConfiguration));
-        if (_activeSession != null) CloseSession();
-        _circuitConfiguration = circuitConfiguration;
+        lock (_sync)
+        {
+            if (_activeSession != null) CloseSession();
+            _circuitConfiguration = circuitConfiguration;
+        }
     }
 
     /// <summary>
@@ -61,107 +71,62 @@ public class LapTimerService : ILapTimer
     public void AddGeolocation(GeoTelemetryData geoTelemetryData, string device = null)
     {
         if (geoTelemetryData == null) return;
-        if (_circuitConfiguration == null) return; // circuit not set yet
-        if (_detectionPaused == 1) return;
 
-        // Maintain a small rolling window
-        var node = _telemetryData.AddLast(geoTelemetryData);
-        if (_telemetryData.Count > _config.MaxTelemetryDataRetention)
-            _telemetryData.RemoveFirst();
-
-        // Store all telemetry in active session (if any)
-        if (_activeSession != null)
-            _activeSession.TelemetryData.Add(geoTelemetryData);
-
-        // Need a previous fix to build a trajectory
-        if (node.Previous == null) return;
-
-        var prev = node.Previous.Value;
-        var curr = node.Value;
-
-        // Global cooldown / sector-timeout rule
-        if (!CanDetectEvent(curr)) return;
-
-        var trajectory = new CircuitGeoLine(prev, curr);
-
-        // 1) Sector crossings
-        foreach (var sector in _circuitConfiguration.Segments)
+        lock (_sync)
         {
-            var intersect = sector.Boundary.Intersect(
-                trajectory,
-                _circuitConfiguration.UseDirection ? CrossingFilter.TowardApex : CrossingFilter.Any);
+            if (_circuitConfiguration == null) return; // circuit not set yet
+            if (_detectionPaused == 1) return;
 
-            if (intersect == null) continue;
+            // Maintain a small rolling window
+            var node = _telemetryData.AddLast(geoTelemetryData);
+            if (_telemetryData.Count > _config.MaxTelemetryDataRetention)
+                _telemetryData.RemoveFirst();
 
-            // Interpolate timestamp at boundary crossing
-            var factor = trajectory.ParameterOf(intersect);
-            var dtMs = (curr.Timestamp - prev.Timestamp).TotalMilliseconds;
-            var adjustedTs = prev.Timestamp.AddMilliseconds(dtMs * factor);
+            // Store all telemetry in active session (if any)
+            _activeSession?.TelemetryData.Add(geoTelemetryData);
 
-            // Convert to "completed sector number" on the previous lap
-            var sectorNumber = sector.Number == 1
-                ? _circuitConfiguration.Segments.Count
-                : sector.Number - 1;
+            // Need a previous fix to build a trajectory
+            if (node.Previous == null) return;
 
-            var sectorEvent = CreateSectorEvent(adjustedTs, sectorNumber, trajectory, factor, device);
-            RegisterEvent(sectorEvent);
+            var prev = node.Previous.Value;
+            var curr = node.Value;
 
-            if (_activeSession != null)
+            // Global cooldown / sector-timeout rule
+            if (!CanDetectEvent(curr)) return;
+
+            var deviceId = string.IsNullOrWhiteSpace(device) ? _config.DeviceId : device;
+
+            // 1) Sector crossing
+            var sectorEvent = SessionEventDetection.DetectSectorCrossing(_circuitConfiguration, prev, curr);
+            if (sectorEvent != null)
             {
-                _activeSession.TelemetryData.Add(geoTelemetryData);
+                sectorEvent.UserId = _config.UserId;
+                sectorEvent.DeviceId = deviceId;
+                RegisterEvent(sectorEvent);
+            }
+
+            // 2) Optional position breadcrumb (every fix)
+            if (_config.TrackPosition)
+            {
+                RegisterEvent(new SessionDataEvent
+                {
+                    Timestamp = curr.Timestamp,
+                    Type = SessionEventType.Position,
+                    FirstGeoCoordinates = prev,
+                    SecondGeoCoordinates = curr,
+                    UserId = _config.UserId,
+                    DeviceId = deviceId
+                });
+            }
+
+            // 3) Auto-close session on idle (only if there was at least one event)
+            if (_activeSession != null &&
+                _activeSession.LastEvent != null &&
+                _activeSession.LastEvent.Timestamp.Add(_config.SessionTimeout) < curr.Timestamp)
+            {
+                CloseSession();
             }
         }
-
-        // 2) Optional position breadcrumb (every fix)
-        if (_config.TrackPosition)
-        {
-            var positionEvent = CreatePositionEvent(curr.Timestamp, trajectory, device);
-            RegisterEvent(positionEvent);
-        }
-
-        // 3) Auto-close session on idle (only if there was at least one event)
-        if (_activeSession != null &&
-            _activeSession.LastEvent != null &&
-            _activeSession.LastEvent.Timestamp.Add(_config.SessionTimeout) < curr.Timestamp)
-        {
-            CloseSession();
-        }
-    }
-
-    private SessionDataEvent CreateSectorEvent(
-        DateTimeOffset timestamp,
-        int sectorNumber,
-        CircuitGeoLine trajectory,
-        double factor,
-        string deviceOverride)
-    {
-        return new SessionDataEvent
-        {
-            Timestamp = timestamp,
-            Sector = sectorNumber,
-            Type = SessionEventType.Sector,
-            FirstGeoCoordinates = trajectory.Start,
-            SecondGeoCoordinates = trajectory.End,
-            UserId = _config.UserId,
-            DeviceId = string.IsNullOrWhiteSpace(deviceOverride) ? _config.DeviceId : deviceOverride,
-            Factor = factor
-        };
-    }
-
-    private SessionDataEvent CreatePositionEvent(
-        DateTimeOffset timestamp,
-        CircuitGeoLine trajectory,
-        string deviceOverride)
-    {
-        return new SessionDataEvent
-        {
-            Timestamp = timestamp,
-            Type = SessionEventType.Position,
-            FirstGeoCoordinates = trajectory.Start,
-            SecondGeoCoordinates = trajectory.End,
-            UserId = _config.UserId,
-            DeviceId = string.IsNullOrWhiteSpace(deviceOverride) ? _config.DeviceId : deviceOverride
-        };
     }
 
     /// <summary>Adds the event to the active session (creating one if needed) and derives lap events.</summary>
@@ -170,106 +135,58 @@ public class LapTimerService : ILapTimer
         if (_activeSession == null)
             CreateSession();
 
-        // Lap number: 0 until first pass across start/finish
-        var lapNumber = _activeSession.LastLap == null ? 0 : _activeSession.LastLap.LapNumber + 1;
-
-        // Per-event sector time (first event → zero)
-        var delta = _activeSession.LastEvent != null
-            ? sessionEvent.Timestamp - _activeSession.LastEvent.Timestamp
-            : TimeSpan.Zero;
-
-        sessionEvent.Time = delta;
-        sessionEvent.LapNumber = lapNumber;
-        sessionEvent.DriverRace = _activeSession;
-        sessionEvent.CircuitCode = _circuitConfiguration.Code;
-
-        // Mark bestness w.r.t current session sector bests
-        sessionEvent.IsBestOverall = _activeSession.IsBestSector(sessionEvent);
-
-        _activeSession.AddEvent(sessionEvent);
-        OnEventAdded(sessionEvent);
-
-        // If this crossing completes the lap, create the LAP event
-        bool completesLap =
-            (_circuitConfiguration.Type == CircuitType.Closed && sessionEvent.Sector == _circuitConfiguration.Segments.Count) ||
-            (_circuitConfiguration.Type == CircuitType.Open && sessionEvent.Sector == _circuitConfiguration.Segments.Count - 1);
-
-        if (completesLap)
-        {
-            TimeSpan lapTime;
-            if (_activeSession.LastLap == null)
-            {
-                lapTime = TimeSpan.Zero; // first time across start line
-            }
-            else
-            {
-                // Closed: from last lap timestamp. Open: from last crossing of finish (Segments.Count)
-                var reference = (_circuitConfiguration.Type == CircuitType.Closed)
-                    ? _activeSession.LastLap.Timestamp
-                    : _activeSession.Events
-                        .Where(x => x.Sector == _circuitConfiguration.Segments.Count)
-                        .Select(x => x.Timestamp)
-                        .DefaultIfEmpty(sessionEvent.Timestamp)
-                        .Last();
-
-                lapTime = sessionEvent.Timestamp - reference;
-            }
-
-            var lapEvent = (SessionDataEvent)sessionEvent.Clone();
-            lapEvent.Type = SessionEventType.Lap;
-            lapEvent.Sector = 0;
-            lapEvent.Time = lapTime;
-
-            if (lapEvent.Time != TimeSpan.Zero)
-                lapEvent.IsBestOverall = _activeSession.BestLap == null || _activeSession.BestLap.Time >= lapEvent.Time;
-
-            _activeSession.AddEvent(lapEvent);
-            OnEventAdded(lapEvent);
-        }
-
-        _activeSession.LastPositionTS = sessionEvent.Timestamp;
+        SessionEventDetection.Register(_activeSession, _circuitConfiguration, sessionEvent, OnEventAdded);
     }
 
     /// <summary>Creates a new active session bound to the current circuit.</summary>
     public DeviceSessionData CreateSession()
     {
-        if (_circuitConfiguration == null)
-            throw new InvalidOperationException("Circuit must be set before creating a session.");
-
-        var now = DateTimeOffset.UtcNow; // use UTC for consistency
-        var session = new DeviceSessionData
+        lock (_sync)
         {
-            Id = now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
-            CircuitCode = _circuitConfiguration.Code,
-            Generator = "LapViz.LapTimer.Service",
-            Version = _version.ToString(),
-            CircuitConfiguration = _circuitConfiguration,
-            CreatedDate = now.UtcDateTime
-        };
+            if (_circuitConfiguration == null)
+                throw new InvalidOperationException("Circuit must be set before creating a session.");
 
-        _activeSession = session;
-        OnSessionStarted(session);
-        Interlocked.Exchange(ref _detectionPaused, 0);
-        return session;
+            var now = DateTimeOffset.UtcNow; // use UTC for consistency
+            var session = new DeviceSessionData
+            {
+                Id = now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+                CircuitCode = _circuitConfiguration.Code,
+                Generator = "LapViz.LapTimer.Service",
+                Version = _version.ToString(),
+                CircuitConfiguration = _circuitConfiguration,
+                CreatedDate = now.UtcDateTime
+            };
+
+            _activeSession = session;
+            OnSessionStarted(session);
+            Interlocked.Exchange(ref _detectionPaused, 0);
+            return session;
+        }
     }
 
     /// <summary>Closes and returns the active session.</summary>
     public DeviceSessionData CloseSession()
     {
-        var stopped = _activeSession;
-        if (stopped != null)
-            OnSessionEnded(stopped);
+        lock (_sync)
+        {
+            var stopped = _activeSession;
+            if (stopped != null)
+                OnSessionEnded(stopped);
 
-        _activeSession = null;
-        _telemetryData.Clear();
-        return stopped;
+            _activeSession = null;
+            _telemetryData.Clear();
+            return stopped;
+        }
     }
 
     public void StopDetection()
     {
-        Interlocked.Exchange(ref _detectionPaused, 1);
-        if (_activeSession != null)
-            OnSessionPaused(_activeSession);
+        lock (_sync)
+        {
+            Interlocked.Exchange(ref _detectionPaused, 1);
+            if (_activeSession != null)
+                OnSessionPaused(_activeSession);
+        }
     }
 
     public void StartDetection()
@@ -285,12 +202,12 @@ public class LapTimerService : ILapTimer
     {
         if (_circuitConfiguration == null) return false;
 
-        var seconds = _circuitConfiguration.SectorTimeout > 0
-            ? _circuitConfiguration.SectorTimeout
-            : (int)_config.MinimumTimeBetweenEvents.TotalSeconds;
+        var cooldown = _circuitConfiguration.SectorTimeout > 0
+            ? TimeSpan.FromSeconds(_circuitConfiguration.SectorTimeout)
+            : _config.MinimumTimeBetweenEvents;
 
         if (_activeSession != null && _activeSession.LastEvent != null &&
-            _activeSession.LastEvent.Timestamp.AddSeconds(seconds) > current.Timestamp)
+            _activeSession.LastEvent.Timestamp + cooldown > current.Timestamp)
         {
             _activeSession.LastPosition = current;
             return false;
@@ -301,7 +218,10 @@ public class LapTimerService : ILapTimer
 
     #region ILapTimer members
 
-    public DeviceSessionData ActiveSession => _activeSession;
+    public DeviceSessionData ActiveSession
+    {
+        get { lock (_sync) return _activeSession; }
+    }
 
     public event EventHandler<SessionDataEvent> EventAdded;
     protected virtual void OnEventAdded(SessionDataEvent e)

@@ -169,7 +169,7 @@ public class TelemetryDomainAggregateTests
                 CircuitCode = "c",
                 SessionId = "s",
                 IsBestOverall = true,
-                IsPersonnalBest = true,
+                IsPersonalBest = true,
                 DataMin = new List<double?> { 1, 2 },
                 DataMax = new List<double?> { 10, 20 },
                 Deleted = DateTime.UtcNow

@@ -75,14 +75,28 @@ public class SessionDataEvent : ITelemetryData, ICloneable
     public GeoCoordinates SecondGeoCoordinates { get; set; }
 
     /// <summary>
-    /// True if this is the driver's best value so far in the session.
+    /// True if this is the best value so far across all drivers/devices of the session
+    /// (overall best). For a single-device session this is also the personal best.
     /// </summary>
     public bool IsBestOverall { get; set; }
 
     /// <summary>
-    /// True if this is the overall session best value so far.
+    /// True if this is the driver's own best value so far in the session (personal best).
     /// </summary>
-    public bool IsPersonnalBest { get; set; }
+    /// <remarks>Serialized as "IsPersonnalBest" so stored and exchanged JSON stays compatible.</remarks>
+    [JsonPropertyName("IsPersonnalBest")]
+    public bool IsPersonalBest { get; set; }
+
+    /// <summary>
+    /// Misspelled alias of <see cref="IsPersonalBest"/>, kept for source compatibility.
+    /// </summary>
+    [Obsolete("Use IsPersonalBest.")]
+    [JsonIgnore]
+    public bool IsPersonnalBest
+    {
+        get => IsPersonalBest;
+        set => IsPersonalBest = value;
+    }
 
     /// <summary>
     /// Back-reference to the driver session container. Ignored for JSON.
@@ -186,7 +200,7 @@ public class SessionDataEvent : ITelemetryData, ICloneable
             CircuitCode = CircuitCode,
             SessionId = SessionId,
             IsBestOverall = IsBestOverall,
-            IsPersonnalBest = IsPersonnalBest,
+            IsPersonalBest = IsPersonalBest,
             DataMin = DataMin != null ? new List<double?>(DataMin) : null,
             DataMax = DataMax != null ? new List<double?>(DataMax) : null,
             Deleted = Deleted

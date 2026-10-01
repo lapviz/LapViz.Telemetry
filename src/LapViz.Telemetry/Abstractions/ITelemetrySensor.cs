@@ -3,7 +3,7 @@ using LapViz.Telemetry.Domain;
 
 namespace LapViz.Telemetry.Abstractions;
 
-public interface ITelemtrySensor : IDisposable
+public interface ITelemetrySensor : IDisposable
 {
     /// <summary>
     /// Starts the sensor. Should be safe to call multiple times.
@@ -54,4 +54,12 @@ public interface ITelemtrySensor : IDisposable
     /// Implementations should also reflect the error in State when appropriate.
     /// </summary>
     event EventHandler<Exception> Error;
+}
+
+/// <summary>
+/// Misspelled alias of <see cref="ITelemetrySensor"/>, kept for source compatibility.
+/// </summary>
+[Obsolete("Use ITelemetrySensor.")]
+public interface ITelemtrySensor : ITelemetrySensor
+{
 }

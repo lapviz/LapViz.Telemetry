@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using LapViz.Telemetry.Abstractions;
 using LapViz.Telemetry.Domain;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LapViz.Telemetry.Services;
 
@@ -33,11 +36,15 @@ public class GeolocationSingleSessionManager
     // The active session being built
     private DeviceSessionData _currentDriverSessionData;
 
+    // Telemetry timestamp at which the active session started (idle timeout reference before any event)
+    private DateTimeOffset _currentSessionStart;
+
     // Configuration
     private readonly TimeSpan _sessionTimeout = TimeSpan.FromMinutes(15);   // idle timeout to end a session
     private readonly bool _trackPosition;
     private readonly int _minSecondsBetweenSectors;
     private readonly ICircuitService _circuitService;
+    private readonly ILogger _logger;
 
     // Identity / tagging
     private string _deviceId;
@@ -51,8 +58,20 @@ public class GeolocationSingleSessionManager
         int minSecondsBetweenSectors = 5,
         string deviceId = "notset",
         string driverId = "notset")
+        : this(circuitService, null, trackPosition, minSecondsBetweenSectors, deviceId, driverId)
+    {
+    }
+
+    public GeolocationSingleSessionManager(
+        ICircuitService circuitService,
+        ILogger<GeolocationSingleSessionManager> logger,
+        bool trackPosition = false,
+        int minSecondsBetweenSectors = 5,
+        string deviceId = "notset",
+        string driverId = "notset")
     {
         _circuitService = circuitService ?? throw new ArgumentNullException(nameof(circuitService));
+        _logger = logger ?? (ILogger)NullLogger.Instance;
         _trackPosition = trackPosition;
         _minSecondsBetweenSectors = minSecondsBetweenSectors;
         _deviceId = deviceId ?? "notset";
@@ -98,25 +117,64 @@ public class GeolocationSingleSessionManager
     {
         if (geoTelemetryData == null) return;
 
+        // Circuit detection is async; run it on the thread pool so blocking here can never
+        // deadlock a caller that owns a synchronization context (UI thread).
+        CircuitConfiguration detected = null;
+        var checkCircuit = ShouldCheckCircuit(geoTelemetryData);
+        if (checkCircuit)
+            detected = Task.Run(() => _circuitService.Detect(geoTelemetryData)).GetAwaiter().GetResult();
+
+        Process(geoTelemetryData, checkCircuit, detected);
+    }
+
+    /// <summary>
+    /// Asynchronous variant of <see cref="AddGeolocation"/>: circuit detection is awaited
+    /// instead of blocking the calling thread.
+    /// </summary>
+    public async Task AddGeolocationAsync(GeoTelemetryData geoTelemetryData, CancellationToken cancellationToken = default)
+    {
+        if (geoTelemetryData == null) return;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        CircuitConfiguration detected = null;
+        var checkCircuit = ShouldCheckCircuit(geoTelemetryData);
+        if (checkCircuit)
+            detected = await _circuitService.Detect(geoTelemetryData).ConfigureAwait(false);
+
+        Process(geoTelemetryData, checkCircuit, detected);
+    }
+
+    /// <summary>Circuit detection is throttled to every 2 seconds, or done on every sample while no circuit is known.</summary>
+    private bool ShouldCheckCircuit(GeoTelemetryData sample)
+    {
+        lock (_sync)
+            return _circuit == null || _lastCircuitCheck + TimeSpan.FromSeconds(2) <= sample.Timestamp;
+    }
+
+    private void Process(GeoTelemetryData geoTelemetryData, bool circuitChecked, CircuitConfiguration detected)
+    {
         lock (_sync)
         {
-            // 1) Circuit detection (throttled to every 2 seconds or on first call)
+            // 1) Circuit change
             bool circuitChanged = false;
-            if (_circuit == null || (_lastCircuitCheck + TimeSpan.FromSeconds(2) <= geoTelemetryData.Timestamp))
+            if (circuitChecked)
             {
-                circuitChanged = TryDetectCircuit(geoTelemetryData);
                 _lastCircuitCheck = geoTelemetryData.Timestamp;
+                if (detected != null && (_circuit == null || !string.Equals(detected.Code, _circuit.Code, StringComparison.Ordinal)))
+                {
+                    _circuit = detected;
+                    circuitChanged = true;
+                }
             }
 
-            if (circuitChanged && _circuit != null)
+            if (circuitChanged)
             {
-                // Notify listeners about circuit change and close previous session (if any)
+                // Notify listeners about circuit change and close the active session (if any)
                 OnCircuitChanged(_circuit);
-                if (_driverSessions.Count > 0)
-                    OnDriverSessionEnded(_driverSessions[_driverSessions.Count - 1]);
+                EndCurrentSession();
 
                 // Create a fresh session bound to the new circuit
-                CreateSession();
+                CreateSession(geoTelemetryData.Timestamp);
             }
 
             // If no circuit is known yet, hold onto the sample as "previous" and return
@@ -129,7 +187,7 @@ public class GeolocationSingleSessionManager
             // 2) Detect events for this motion (previous sample -> current sample)
             var evt = DetectSessionEvents(geoTelemetryData);
             if (evt != null)
-                RegisterEvent(evt);
+                RegisterEvent(evt, geoTelemetryData.Timestamp);
 
             // 3) Update last-known telemetry and position timestamps for the active session
             _previousTelemetryData = geoTelemetryData;
@@ -139,28 +197,34 @@ public class GeolocationSingleSessionManager
                 _currentDriverSessionData.LastPositionTS = geoTelemetryData.Timestamp;
             }
 
-            // 4) Session idle timeout: if no events for _sessionTimeout, close the session
+            // 4) Session idle timeout: if no events for _sessionTimeout, close the session.
+            //    Reference is telemetry time (not wall-clock), so replayed recordings behave like live ones.
             if (_currentDriverSessionData != null)
             {
-                var lastTs = _currentDriverSessionData.LastEvent?.Timestamp ?? _currentDriverSessionData.CreatedDate;
+                var lastTs = _currentDriverSessionData.LastEvent?.Timestamp ?? _currentSessionStart;
                 if (lastTs + _sessionTimeout < geoTelemetryData.Timestamp)
-                {
-                    OnDriverSessionEnded(_currentDriverSessionData);
-                    _currentDriverSessionData = null;
-                }
+                    EndCurrentSession();
             }
         }
+    }
+
+    private void EndCurrentSession()
+    {
+        if (_currentDriverSessionData == null) return;
+        var ended = _currentDriverSessionData;
+        _currentDriverSessionData = null;
+        OnDriverSessionEnded(ended);
     }
 
     /// <summary>
     /// Create a new current session bound to the current circuit and identity.
     /// Raises <see cref="DriverSessionStarted"/>.
     /// </summary>
-    private void CreateSession()
+    private void CreateSession(DateTimeOffset telemetryTimestamp)
     {
         var session = new DeviceSessionData
         {
-            Id = DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+            Id = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
             CircuitCode = _circuit?.Code,
             Generator = "LapViz",
             Version = Version.ToString(),
@@ -170,6 +234,7 @@ public class GeolocationSingleSessionManager
 
         _driverSessions.Add(session);
         _currentDriverSessionData = session;
+        _currentSessionStart = telemetryTimestamp;
         OnDriverSessionStarted(session);
     }
 
@@ -185,6 +250,7 @@ public class GeolocationSingleSessionManager
             _previousTelemetryData = null;
             _circuit = null;
             _lastCircuitCheck = DateTimeOffset.MinValue;
+            _currentSessionStart = default;
         }
     }
 
@@ -201,43 +267,12 @@ public class GeolocationSingleSessionManager
         if (IsInDetectionTimeout(current))
             return null;
 
-        // Segment from previous point to current point
-        var trajectory = new CircuitGeoLine(_previousTelemetryData, current);
-
-        // Check crossing with each circuit segment (respect direction setting)
-        foreach (var sector in _circuit.Segments)
+        var sectorEvent = SessionEventDetection.DetectSectorCrossing(_circuit, _previousTelemetryData, current);
+        if (sectorEvent != null)
         {
-            var intersect = sector.Boundary.Intersect(
-                trajectory,
-                _circuit.UseDirection ? CrossingFilter.TowardApex : CrossingFilter.Any);
-
-            if (intersect == null)
-                continue;
-
-            // Linear interpolation on the segment to adjust timestamp at crossing
-            var factor = trajectory.ParameterOf(intersect);
-            var dt = (current.Timestamp - _previousTelemetryData.Timestamp).TotalMilliseconds;
-            var adjustedTimestamp = _previousTelemetryData.Timestamp.AddMilliseconds(dt * factor);
-
-            // For sector numbering: when crossing segment "1" we are *ending* the previous lap/sector set.
-            // Example:
-            //   - Closed circuits: last sector is Segments.Count (finish line == start line)
-            //   - Open circuits:   finish line is last segment; start line is Segments[0]
-            int sectorNumber = (sector.Number == 1) ? _circuit.Segments.Count : (sector.Number - 1);
-
-            var evt = new SessionDataEvent
-            {
-                Timestamp = adjustedTimestamp,
-                Sector = sectorNumber,
-                Type = SessionEventType.Sector,
-                FirstGeoCoordinates = trajectory.Start,
-                SecondGeoCoordinates = trajectory.End,
-                UserId = _driverId,
-                DeviceId = _deviceId,
-                Factor = factor
-            };
-
-            return evt;
+            sectorEvent.UserId = _driverId;
+            sectorEvent.DeviceId = _deviceId;
+            return sectorEvent;
         }
 
         // Optional: position breadcrumb every ~1s, independent of sectors (only if enabled)
@@ -276,70 +311,13 @@ public class GeolocationSingleSessionManager
     /// computes its lap number and per-event time delta, and if this completes
     /// a lap, also emits a Lap event.
     /// </summary>
-    private void RegisterEvent(SessionDataEvent sessionDataEvent)
+    private void RegisterEvent(SessionDataEvent sessionDataEvent, DateTimeOffset telemetryTimestamp)
     {
         // Ensure we have an active session
         if (_currentDriverSessionData == null)
-            CreateSession();
+            CreateSession(telemetryTimestamp);
 
-        // Lap number: 0 until we first cross start line; then increment when sector 1 is crossed
-        int lapNumber = (_currentDriverSessionData.LastLap == null)
-            ? 0
-            : _currentDriverSessionData.LastLap.LapNumber + 1;
-
-        // Per-event time is the delta since the last event (first event -> 0)
-        var time = (_currentDriverSessionData.LastEvent != null)
-            ? sessionDataEvent.Timestamp - _currentDriverSessionData.LastEvent.Timestamp
-            : TimeSpan.Zero;
-
-        sessionDataEvent.Time = time;
-        sessionDataEvent.LapNumber = lapNumber;
-        sessionDataEvent.DriverRace = _currentDriverSessionData;
-        sessionDataEvent.CircuitCode = _circuit?.Code;
-
-        _currentDriverSessionData.AddEvent(sessionDataEvent);
-        OnSessionEventAdded(sessionDataEvent);
-
-        // Lap registration rule:
-        // - CLOSED: crossing the last sector means the lap has just completed.
-        // - OPEN:   crossing the (Count - 1) sector completes the lap (finish line).
-        bool completesLap =
-            (_circuit.Type == CircuitType.Closed && sessionDataEvent.Sector == _circuit.Segments.Count) ||
-            (_circuit.Type == CircuitType.Open && sessionDataEvent.Sector == _circuit.Segments.Count - 1);
-
-        if (completesLap)
-        {
-            // Lap time is delta since last lap reference:
-            // - CLOSED: since previous lap's timestamp
-            // - OPEN:   since last crossing of the finish segment (Segments.Count)
-            TimeSpan lapTime;
-            if (_currentDriverSessionData.LastLap == null)
-            {
-                lapTime = TimeSpan.Zero; // first time across start line
-            }
-            else
-            {
-                var reference = (_circuit.Type == CircuitType.Closed)
-                    ? _currentDriverSessionData.LastLap.Timestamp
-                    : _currentDriverSessionData.Events
-                        .Where(x => x.Sector == _circuit.Segments.Count)
-                        .Select(x => x.Timestamp)
-                        .DefaultIfEmpty(sessionDataEvent.Timestamp)
-                        .Last();
-
-                lapTime = sessionDataEvent.Timestamp - reference;
-            }
-
-            var lapEvent = (SessionDataEvent)sessionDataEvent.Clone();
-            lapEvent.Type = SessionEventType.Lap;
-            lapEvent.Sector = 0;
-            lapEvent.Time = lapTime;
-
-            _currentDriverSessionData.AddEvent(lapEvent);
-            OnSessionEventAdded(lapEvent);
-        }
-
-        _currentDriverSessionData.LastPositionTS = sessionDataEvent.Timestamp;
+        SessionEventDetection.Register(_currentDriverSessionData, _circuit, sessionDataEvent, OnSessionEventAdded);
     }
 
     /// <summary>
@@ -363,44 +341,31 @@ public class GeolocationSingleSessionManager
         return false;
     }
 
-    /// <summary>
-    /// Ask the circuit service to detect the current circuit given a sample.
-    /// Returns true if the circuit changed.
-    /// </summary>
-    private bool TryDetectCircuit(GeoTelemetryData sample)
-    {
-        var detected = _circuitService.Detect(sample).Result;
-        if (detected != null && (_circuit == null || !string.Equals(detected.Code, _circuit.Code, StringComparison.Ordinal)))
-        {
-            _circuit = detected;
-            return true;
-        }
-
-
-        return false;
-    }
-
     public event EventHandler<CircuitConfiguration> CircuitChanged;
     protected virtual void OnCircuitChanged(CircuitConfiguration cfg)
     {
-        try { CircuitChanged?.Invoke(this, cfg); } catch { /* ignore */ }
+        try { CircuitChanged?.Invoke(this, cfg); }
+        catch (Exception ex) { _logger.LogError(ex, "GeolocationSingleSessionManager: CircuitChanged handler failed."); }
     }
 
     public event EventHandler<SessionDataEvent> SessionEventAdded;
     protected virtual void OnSessionEventAdded(SessionDataEvent e)
     {
-        try { SessionEventAdded?.Invoke(this, e); } catch { /* ignore */ }
+        try { SessionEventAdded?.Invoke(this, e); }
+        catch (Exception ex) { _logger.LogError(ex, "GeolocationSingleSessionManager: SessionEventAdded handler failed."); }
     }
 
     public event EventHandler<DeviceSessionData> DriverSessionStarted;
     protected virtual void OnDriverSessionStarted(DeviceSessionData s)
     {
-        try { DriverSessionStarted?.Invoke(this, s); } catch { /* ignore */ }
+        try { DriverSessionStarted?.Invoke(this, s); }
+        catch (Exception ex) { _logger.LogError(ex, "GeolocationSingleSessionManager: DriverSessionStarted handler failed."); }
     }
 
     public event EventHandler<DeviceSessionData> DriverSessionEnded;
     protected virtual void OnDriverSessionEnded(DeviceSessionData s)
     {
-        try { DriverSessionEnded?.Invoke(this, s); } catch { /* ignore */ }
+        try { DriverSessionEnded?.Invoke(this, s); }
+        catch (Exception ex) { _logger.LogError(ex, "GeolocationSingleSessionManager: DriverSessionEnded handler failed."); }
     }
 }
