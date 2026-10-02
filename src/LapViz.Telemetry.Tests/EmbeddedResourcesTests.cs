@@ -33,7 +33,7 @@ public class EmbeddedResourcesTests
     /// Known errors of the dataset, to fix with real coordinates: 120 (Hockenheim) has both
     /// box corners equal, 209 (Brands Hatch industrial) has the start line of 208 (Parc Blyton).
     /// </summary>
-    private static readonly HashSet<string> KnownBadGeometry = new() { "120", "209" };
+    private static readonly HashSet<string> KnownBadGeometry = new HashSet<string> { "120", "209" };
 
     [Fact]
     public void Builtin_Circuits_Have_A_Consistent_Geometry()
