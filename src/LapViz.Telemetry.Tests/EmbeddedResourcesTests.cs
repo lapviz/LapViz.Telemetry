@@ -29,6 +29,51 @@ public class EmbeddedResourcesTests
         Assert.Equal(4.654117, mettet.Segments[2].Boundary.End.Longitude);
     }
 
+    /// <summary>
+    /// Known errors of the dataset, to fix with real coordinates: 120 (Hockenheim) has both
+    /// box corners equal, 209 (Brands Hatch industrial) has the start line of 208 (Parc Blyton).
+    /// </summary>
+    private static readonly HashSet<string> KnownBadGeometry = new() { "120", "209" };
+
+    [Fact]
+    public void Builtin_Circuits_Have_A_Consistent_Geometry()
+    {
+        const double margin = 0.002; // degrees: lines may sit on the edge of the box
+
+        var problems = new List<string>();
+        foreach (var circuit in new StaticCircuitService().InitializeCircuits())
+        {
+            if (KnownBadGeometry.Contains(circuit.Code))
+                continue;
+
+            var box = circuit.BoundingBox;
+            double minLat = Math.Min(box.Start.Latitude, box.End.Latitude), maxLat = Math.Max(box.Start.Latitude, box.End.Latitude);
+            double minLon = Math.Min(box.Start.Longitude, box.End.Longitude), maxLon = Math.Max(box.Start.Longitude, box.End.Longitude);
+
+            if (maxLat - minLat < 1e-5 || maxLon - minLon < 1e-5)
+                problems.Add($"{circuit.Code} {circuit.Name}: empty box");
+
+            var numbers = circuit.Segments.Select(s => s.Number).OrderBy(n => n).ToList();
+            if (!numbers.SequenceEqual(Enumerable.Range(1, numbers.Count)))
+                problems.Add($"{circuit.Code} {circuit.Name}: segments not numbered 1..N");
+
+            foreach (var segment in circuit.Segments)
+            {
+                foreach (var point in new[] { segment.Boundary.Start, segment.Boundary.End })
+                {
+                    if (point.Latitude < minLat - margin || point.Latitude > maxLat + margin ||
+                        point.Longitude < minLon - margin || point.Longitude > maxLon + margin)
+                    {
+                        problems.Add($"{circuit.Code} {circuit.Name}: line {segment.Number} outside the box");
+                        break;
+                    }
+                }
+            }
+        }
+
+        Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
     [Fact]
     public void InitializeCircuits_Returns_New_Instances()
     {
