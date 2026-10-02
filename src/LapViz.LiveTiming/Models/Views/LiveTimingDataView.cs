@@ -57,17 +57,24 @@ public class LiveTimingDataView : INotifyPropertyChanged
             {
                 LiveTimingDataDeviceEventView deviceEventView;
 
-                // Soft delete of an existing event
-                if (deviceEventDto.Deleted.HasValue && deviceView.Events.Any(x => x.Id == deviceEventDto.Id))
+                var known = deviceEventDto.Id == null
+                    ? new List<LiveTimingDataDeviceEventView>()
+                    : deviceView.Events.Where(x => x.Id == deviceEventDto.Id).ToList();
+
+                // Soft delete of an existing event (and of its entry while it was in progress)
+                if (deviceEventDto.Deleted.HasValue && known.Count > 0)
                 {
-                    deviceEventView = deviceView.Events.First(e => e.Id == deviceEventDto.Id);
-                    if (deviceEventView.Deleted == null)
+                    foreach (var knownEvent in known.Where(x => x.Deleted == null))
                     {
-                        deviceEventView.Deleted = deviceEventDto.Deleted;
+                        knownEvent.Deleted = deviceEventDto.Deleted;
                         shouldRebuild = true; // removal of bests and meters
                     }
                     continue;
                 }
+
+                // A deletion is final, and an event received twice (with the board, then live) counts once.
+                if (known.Any(x => x.Deleted != null || x.Time == deviceEventDto.Time))
+                    continue;
 
                 // Nieuw evenement
                 deviceEventView = new LiveTimingDataDeviceEventView
@@ -79,7 +86,9 @@ public class LiveTimingDataView : INotifyPropertyChanged
                     Time = deviceEventDto.Time,
                     Timestamp = deviceEventDto.Timestamp,
                     Lap = deviceEventDto.LapNumber,
-                    Sector = deviceEventDto.SectorNumber
+                    Sector = deviceEventDto.SectorNumber,
+                    // Deleted before it got here: kept, so that the event itself stays deleted
+                    Deleted = deviceEventDto.Deleted
                 };
 
                 deviceView.Events.Add(deviceEventView);
@@ -95,7 +104,8 @@ public class LiveTimingDataView : INotifyPropertyChanged
                 if (deviceView.LastEvent == null || deviceView.LastEvent.Timestamp < deviceEventView.Timestamp)
                     deviceView.LastEvent = deviceEventView;
 
-                if (deviceEventView.Type == LiveTimingDataDeviceEventType.Lap)
+                // A lap in progress comes without time: it is not the last lap yet.
+                if (deviceEventView.Type == LiveTimingDataDeviceEventType.Lap && deviceEventView.Time > TimeSpan.Zero && deviceEventView.Deleted == null)
                 {
                     if (deviceView.LastLap == null || deviceView.LastLap.Timestamp < deviceEventView.Timestamp)
                         deviceView.LastLap = deviceEventView;
@@ -359,11 +369,14 @@ public class LiveTimingDataView : INotifyPropertyChanged
                     DeviceShortId = device.Id.Length > 8 ? device.Id.Substring(0, 8) : device.Id
                 };
 
-                var lastLapEvent = device.Events
-                    .Where(e => e.Type == LiveTimingDataDeviceEventType.Lap && e.Deleted == null)
-                    .OrderByDescending(e => e.Timestamp)
-                    .FirstOrDefault();
-                row.Laps = lastLapEvent != null ? lastLapEvent.Lap.ToString(CultureInfo.InvariantCulture) : "";
+                // Laps completed: neither the lap in progress (without time) nor the deleted ones,
+                // whatever number the sender gave them.
+                var completedLaps = device.Events
+                    .Where(e => e.Type == LiveTimingDataDeviceEventType.Lap && e.Deleted == null && e.Time > TimeSpan.Zero)
+                    .Select(e => e.Id ?? e.Timestamp.ToString("O", CultureInfo.InvariantCulture))
+                    .Distinct()
+                    .Count();
+                row.Laps = completedLaps > 0 ? completedLaps.ToString(CultureInfo.InvariantCulture) : "";
 
                 // Total number of sectors to display for the table
                 var totalSectors = newRankingTable.Sectors ?? 3;
@@ -407,7 +420,7 @@ public class LiveTimingDataView : INotifyPropertyChanged
                 }
 
                 var lastNonDeletedLap = device.Events
-                    .Where(e => e.Type == LiveTimingDataDeviceEventType.Lap && e.Deleted == null)
+                    .Where(e => e.Type == LiveTimingDataDeviceEventType.Lap && e.Deleted == null && e.Time > TimeSpan.Zero)
                     .OrderByDescending(e => e.Timestamp)
                     .FirstOrDefault();
 
