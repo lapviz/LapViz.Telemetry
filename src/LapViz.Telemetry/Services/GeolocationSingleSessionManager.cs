@@ -118,11 +118,17 @@ public class GeolocationSingleSessionManager
         if (geoTelemetryData == null) return;
 
         // Circuit detection is async; run it on the thread pool so blocking here can never
-        // deadlock a caller that owns a synchronization context (UI thread).
+        // deadlock a caller that owns a synchronization context (UI thread). The built-in circuits
+        // are detected synchronously: no thread pool, which also keeps this method usable where
+        // nothing may block on a task (browser, WebAssembly).
         CircuitConfiguration? detected = null;
         var checkCircuit = ShouldCheckCircuit(geoTelemetryData);
         if (checkCircuit)
-            detected = Task.Run(() => _circuitService.Detect(geoTelemetryData)).GetAwaiter().GetResult();
+        {
+            detected = _circuitService is StaticCircuitService
+                ? _circuitService.Detect(geoTelemetryData).GetAwaiter().GetResult()
+                : Task.Run(() => _circuitService.Detect(geoTelemetryData)).GetAwaiter().GetResult();
+        }
 
         Process(geoTelemetryData, checkCircuit, detected);
     }
