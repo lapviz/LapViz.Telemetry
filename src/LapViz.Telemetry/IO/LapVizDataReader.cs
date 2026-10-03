@@ -11,8 +11,8 @@ using LapViz.Telemetry.Domain;
 namespace LapViz.Telemetry.IO;
 
 /// <summary>
-/// Reads LapViz delimited telemetry files written by <see cref="LapVizDataWriter"/>.
-/// Supports plain text or ".lvz" (zip) with a single data entry.
+/// Reads LapViz files: version 2 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>) and the version 1 delimited text,
+/// plain or in a ".lvz" zip with a single data entry.
 /// Uses a single-pass parser that:
 ///   - waits for "#Fields=" before reading any data,
 ///   - parses "#Event=" lines at any time,
@@ -41,6 +41,12 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     public override IList<string> GetTelemetryChannels()
     {
         EnsureFileLoaded();
+
+        if (IsVersion2(_filename))
+        {
+            _channels = LapVizFile.Read(_filename).Channels.Select(x => x.Name).ToList();
+            return _channels;
+        }
 
         using (var dataStream = OpenDataStream(_filename))
         using (var reader = new StreamReader(dataStream, new UTF8Encoding(false), true))
@@ -74,6 +80,15 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     public override IList<DeviceSessionData> GetSessionData()
     {
         EnsureFileLoaded();
+
+        if (IsVersion2(_filename))
+        {
+            var data = LapVizFile.Read(_filename).ToDeviceSessionData();
+            data.OriginalFilename = Path.GetFileName(_filename);
+            data.SourceFileHash = GetHash();
+            _channels = data.TelemetryChannels;
+            return new List<DeviceSessionData> { data };
+        }
 
         var session = new DeviceSessionData(string.Empty, string.Empty)
         {
@@ -174,6 +189,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
         if (filename.EndsWith(".lvz", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        if (IsVersion2(filename))
+            return true;
+
         try
         {
             using (var dataStream = OpenDataStream(filename))
@@ -225,6 +243,19 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
 
         return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
         return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
+    /// <summary>A LapViz version 2 file: a zip archive holding the manifest.</summary>
+    private static bool IsVersion2(string filename)
+    {
+        try
+        {
+            return IsZipFile(filename) && LapVizFile.IsLapVizArchive(filename);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

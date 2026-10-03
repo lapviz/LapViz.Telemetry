@@ -11,14 +11,15 @@ using LapViz.Telemetry.Domain;
 namespace LapViz.Telemetry.IO;
 
 /// <summary>
-/// LapViz delimited telemetry writer (plain text or compressed, controlled by constructor flag).
+/// LapViz telemetry writer.
 ///
-/// Defaults:
-/// - Streaming constructor: compressed by default (compressed=true).
-/// - One-shot to disk via ITelemetryDataWriter.WriteAll(...): compressed by default (as required).
-/// - One-shot to memory: ALWAYS compressed.
+/// - One-shot writes (<see cref="WriteAll(DeviceSessionData, string, bool)"/>, <see cref="WriteAll(DeviceSessionData)"/>):
+///   LapViz format version 2 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>), unless <c>compressed</c> is false
+///   (version 1 plain text, legacy).
+/// - Streaming (filename constructor, <see cref="WriteData"/>, <see cref="WriteEvent"/>): version 1 delimited text,
+///   compressed by default (zip with one ".lz" entry).
 ///
-/// Text payload format (used both for plain text and inside the compressed entry):
+/// Version 1 text payload (plain text or inside the compressed entry):
 ///   #Format=LapViz Delimited Data
 ///   #Version=1
 ///   #CircuitCode=...        (optional)
@@ -101,15 +102,8 @@ public class LapVizDataWriter : ITelemetryDataWriter, IDisposable
         if (compressed)
         {
             using (var fs = new FileStream(output, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
-            using (var archive = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
             {
-                var entryName = ComputeZipEntryName(output, session);
-                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-                using (var es = entry.Open())
-                using (var writer = new StreamWriter(es, new UTF8Encoding(false), 1024, leaveOpen: false))
-                {
-                    WriteAllPayload(writer, session);
-                }
+                ToLapVizFile(session).Write(fs);
             }
         }
         else
@@ -121,27 +115,20 @@ public class LapVizDataWriter : ITelemetryDataWriter, IDisposable
         }
     }
 
-    /// <summary>
-    /// One-shot write to an in-memory stream. ALWAYS returns a compressed archive containing one entry "&lt;basename&gt;.lz".
-    /// Basename is derived from <see cref="DeviceSessionData.OriginalFilename"/> if available; otherwise "data".
-    /// </summary>
+    /// <summary>One-shot write to an in-memory stream: a LapViz version 2 archive.</summary>
     public MemoryStream WriteAll(DeviceSessionData session)
     {
-        var zipStream = new MemoryStream();
+        var stream = new MemoryStream();
+        ToLapVizFile(session).Write(stream);
+        stream.Position = 0;
+        return stream;
+    }
 
-        using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            var entryName = ComputeZipEntryName(null, session); // e.g., "session-name.lz" or "data.lz"
-            var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-            using (var es = entry.Open())
-            using (var writer = new StreamWriter(es, new UTF8Encoding(false), 1024, leaveOpen: false))
-            {
-                WriteAllPayload(writer, session);
-            }
-        }
-
-        zipStream.Position = 0;
-        return zipStream;
+    private static LapVizFile ToLapVizFile(DeviceSessionData session)
+    {
+        var file = LapVizFile.FromDeviceSessionData(session);
+        file.Generator = new LapVizGenerator { Name = "LapViz.Telemetry", Version = typeof(LapVizFile).Assembly.GetName().Version?.ToString() };
+        return file;
     }
 
     /// <summary>

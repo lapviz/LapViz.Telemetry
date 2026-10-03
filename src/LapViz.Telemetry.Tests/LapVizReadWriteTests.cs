@@ -54,6 +54,17 @@ public class LapVizReadWriteTests
         return session;
     }
 
+    /// <summary>
+    /// Laps and sectors (type, lap, sector, time to the microsecond): what the format keeps. Crossings of zero duration
+    /// (the first crossing of the line) are markers, not laps.
+    /// </summary>
+    private static List<(SessionEventType Type, int Lap, int Sector, long Microseconds)> Timed(DeviceSessionData session) =>
+        session.Events
+            .Where(x => (x.Type == SessionEventType.Lap || x.Type == SessionEventType.Sector) && x.Time > TimeSpan.Zero)
+            .Select(x => (x.Type, x.LapNumber, x.Type == SessionEventType.Sector ? x.Sector : 0, (long)Math.Round(x.Time.TotalMilliseconds * 1000)))
+            .OrderBy(x => x.Item2).ThenBy(x => x.Item1).ThenBy(x => x.Item3)
+            .ToList();
+
     private static void AssertEqualUnixMs(DateTimeOffset a, DateTimeOffset b)
         => Assert.Equal(a.ToUnixTimeMilliseconds(), b.ToUnixTimeMilliseconds());
 
@@ -96,8 +107,8 @@ public class LapVizReadWriteTests
                     Assert.InRange(Math.Abs(mid.Longitude - mid2.Longitude), 0, 1e-9);
                 }
 
-                // Events preserved exactly
-                Assert.Equal(sessionWithEvents.Events.Count, roundTripped.Events.Count);
+                // Laps and sectors preserved, including the sectors of the last, incomplete lap
+                Assert.Equal(Timed(sessionWithEvents), Timed(roundTripped));
 
                 // Known assertion from your integration test: lap 3 time 00:00:57.286 +/- 1 ms
                 var expected = TimeSpan.FromMilliseconds(57287);
@@ -133,7 +144,7 @@ public class LapVizReadWriteTests
                 var rt = reader.GetSessionData().First();
 
                 Assert.Equal(session.TelemetryData.Count, rt.TelemetryData.Count);
-                Assert.Equal(session.Events.Count, rt.Events.Count);
+                Assert.Equal(Timed(session), Timed(rt));
             }
             finally
             {
