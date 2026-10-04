@@ -293,9 +293,9 @@ public sealed class LiveTimingCommand : Command<LiveTimingSettings>
             // Here we're just manipulating offsets in milliseconds, t0 will be used as a reference.
             using (var reader = new StreamReader(MultipleDriverSessionDataCsvPath))
             {
-                while (!reader.EndOfStream)
+                string? line;
+                while ((line = reader.ReadLine()) != null)
                 {
-                    var line = reader.ReadLine();
                     if (string.IsNullOrWhiteSpace(line) || line.StartsWith("DeviceId", StringComparison.OrdinalIgnoreCase))
                         continue;
 

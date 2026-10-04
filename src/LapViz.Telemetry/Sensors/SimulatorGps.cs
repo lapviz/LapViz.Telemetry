@@ -253,7 +253,7 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
         var timeDelta = TimeSpan.Zero;
         double? lastDistance = null;
 
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested)
         {
             string line = reader.ReadLine();
             if (line == null) break;
@@ -272,8 +272,9 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
             // One-time skip (consume N lines and reset)
             if (_skipDataOnce > 0)
             {
-                for (int i = 0; i < _skipDataOnce && !reader.EndOfStream; i++)
-                    reader.ReadLine();
+                for (int i = 0; i < _skipDataOnce && reader.ReadLine() != null; i++)
+                {
+                }
                 _skipDataOnce = 0;
                 continue;
             }
@@ -344,8 +345,9 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
             }
 
             // Continuous skip to simulate lower rate
-            for (int i = 0; i < _skipData && !reader.EndOfStream; i++)
-                reader.ReadLine();
+            for (int i = 0; i < _skipData && reader.ReadLine() != null; i++)
+            {
+            }
         }
     }
 
