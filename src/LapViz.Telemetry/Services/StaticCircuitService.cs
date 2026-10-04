@@ -135,7 +135,7 @@ public class StaticCircuitService : ICircuitService
     /// </summary>
     public IList<CircuitConfiguration> InitializeCircuits()
     {
-        // Generated from database 21-06-23 10:30:25
+        // Generated from lapviz.com by tools/update_circuits.py
         using (var stream = typeof(StaticCircuitService).Assembly.GetManifestResourceStream(CircuitsResource))
         {
             if (stream == null)

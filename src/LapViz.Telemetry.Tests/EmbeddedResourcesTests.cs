@@ -11,10 +11,12 @@ public class EmbeddedResourcesTests
     {
         var circuits = new StaticCircuitService().InitializeCircuits();
 
-        Assert.Equal(167, circuits.Count);
+        Assert.Equal(189, circuits.Count);
         Assert.All(circuits, c =>
         {
             Assert.False(string.IsNullOrEmpty(c.Code));
+            Assert.False(string.IsNullOrEmpty(c.CountryCode));
+            Assert.False(string.IsNullOrEmpty(c.Location));
             Assert.NotNull(c.BoundingBox);
             Assert.NotEmpty(c.Segments);
         });
@@ -27,6 +29,8 @@ public class EmbeddedResourcesTests
         Assert.Equal(3, mettet.Segments.Count);
         Assert.Equal(50.300443, mettet.Segments[2].Boundary.Start.Latitude);
         Assert.Equal(4.654117, mettet.Segments[2].Boundary.End.Longitude);
+        Assert.Equal("circuits/mettet", mettet.Id);
+        Assert.Equal("be", mettet.CountryCode);
     }
 
     /// <summary>
