@@ -36,6 +36,9 @@ public class GeolocationSingleSessionManager
     // The active session being built
     private DeviceSessionData _currentDriverSessionData;
 
+    // Last crossing of each boundary in the active session, for the per-boundary cooldown
+    private readonly BoundaryCooldown _cooldown = new BoundaryCooldown();
+
     // Telemetry timestamp at which the active session started (idle timeout reference before any event)
     private DateTimeOffset _currentSessionStart;
 
@@ -219,6 +222,7 @@ public class GeolocationSingleSessionManager
         if (_currentDriverSessionData == null) return;
         var ended = _currentDriverSessionData;
         _currentDriverSessionData = null;
+        _cooldown.Clear();
         OnDriverSessionEnded(ended);
     }
 
@@ -254,6 +258,7 @@ public class GeolocationSingleSessionManager
         {
             _driverSessions.Clear();
             _currentDriverSessionData = null;
+            _cooldown.Clear();
             _previousTelemetryData = null;
             _circuit = null;
             _lastCircuitCheck = DateTimeOffset.MinValue;
@@ -270,11 +275,10 @@ public class GeolocationSingleSessionManager
         if (_previousTelemetryData == null || _circuit == null)
             return null;
 
-        // Throttle sector detection close in time to avoid double-triggers on noisy signals
-        if (IsInDetectionTimeout(current))
-            return null;
-
-        var sectorEvent = SessionEventDetection.DetectSectorCrossing(_circuit, _previousTelemetryData, current);
+        // A boundary crossed shortly before is skipped, to avoid double-triggers on noisy signals
+        var windowSec = _circuit.SectorTimeout > 0 ? _circuit.SectorTimeout : _minSecondsBetweenSectors;
+        var sectorEvent = SessionEventDetection.DetectSectorCrossing(
+            _circuit, _previousTelemetryData, current, _cooldown, TimeSpan.FromSeconds(windowSec));
         if (sectorEvent != null)
         {
             sectorEvent.UserId = _driverId;
@@ -323,27 +327,6 @@ public class GeolocationSingleSessionManager
         // Ensure we have an active session
         var session = _currentDriverSessionData ?? CreateSession(telemetryTimestamp);
         SessionEventDetection.Register(session, _circuit, sessionDataEvent, OnSessionEventAdded);
-    }
-
-    /// <summary>
-    /// Returns true if we should suppress detection because another sector event fired too recently.
-    /// Updates last position while we wait.
-    /// </summary>
-    private bool IsInDetectionTimeout(GeoTelemetryData current)
-    {
-        if (_currentDriverSessionData == null) return false;
-
-        var windowSec = (_circuit?.SectorTimeout > 0) ? _circuit.SectorTimeout : _minSecondsBetweenSectors;
-
-        var lastEvtTs = _currentDriverSessionData.LastEvent?.Timestamp ?? DateTimeOffset.MinValue;
-        if (lastEvtTs + TimeSpan.FromSeconds(windowSec) > current.Timestamp)
-        {
-            _currentDriverSessionData.LastPosition = current;
-            _currentDriverSessionData.LastPositionTS = current.Timestamp;
-            return true;
-        }
-
-        return false;
     }
 
     public event EventHandler<CircuitConfiguration> CircuitChanged;

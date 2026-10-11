@@ -457,7 +457,7 @@ public class LapTimerServiceTests
     public sealed class Cooldown
     {
         [Fact]
-        public void Global_Cooldown_Blocks_Second_Crossing_When_Too_Close()
+        public void Cooldown_Blocks_Second_Crossing_Of_The_Same_Line_When_Too_Close()
         {
             var cfg = new LapTimerConfig
             {
@@ -478,7 +478,7 @@ public class LapTimerServiceTests
             var countAfterFirst = added.Count;
             Assert.True(countAfterFirst >= 2);
 
-            // second passage too soon, blocked by global cooldown
+            // second passage of the same line too soon, blocked by its cooldown
             svc.AddGeolocation(Fix(0, -0.001, t0.AddSeconds(2)));
             svc.AddGeolocation(Fix(0, +0.001, t0.AddSeconds(3)));
 
@@ -511,6 +511,54 @@ public class LapTimerServiceTests
             svc.AddGeolocation(Fix(0, +0.001, t0.AddSeconds(4)));
 
             Assert.True(added.Count > countAfterFirst);
+        }
+
+        [Fact]
+        public void Cooldown_Holds_The_Crossed_Boundary_Not_The_Others()
+        {
+            var svc = NewService(new LapTimerConfig
+            {
+                AutoStartDetection = true,
+                MinimumTimeBetweenEvents = TimeSpan.FromSeconds(5)
+            });
+            // Boundary 1 at lon 0, boundary 2 at lon 0.0005: a short sector
+            svc.SetCircuit(MakeCircuit(segmentCount: 2));
+
+            var t0 = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero);
+            svc.AddGeolocation(Fix(0, -0.001, t0));
+            svc.AddGeolocation(Fix(0, +0.0002, t0.AddSeconds(1)));  // boundary 1
+            svc.AddGeolocation(Fix(0, +0.0008, t0.AddSeconds(2)));  // boundary 2, 1 s later: counted
+
+            // Back over both boundaries and across boundary 1 again within their cooldown: ignored
+            svc.AddGeolocation(Fix(0, +0.0002, t0.AddSeconds(3)));
+            svc.AddGeolocation(Fix(0, -0.0002, t0.AddSeconds(3.5)));
+            svc.AddGeolocation(Fix(0, +0.0002, t0.AddSeconds(4)));
+
+            var sectors = svc.ActiveSession.Events.Where(e => e.Type == SessionEventType.Sector).ToList();
+            Assert.Equal(new[] { 2, 1 }, sectors.Select(e => e.Sector));
+        }
+
+        [Fact]
+        public void Position_Events_Do_Not_Hold_The_Boundaries()
+        {
+            var svc = NewService(new LapTimerConfig
+            {
+                AutoStartDetection = true,
+                TrackPosition = true,
+                MinimumTimeBetweenEvents = TimeSpan.FromSeconds(5)
+            });
+            svc.SetCircuit(MakeCircuit(segmentCount: 1));
+
+            // The line at 0.5 s, then a position event at 6 s: the line crossed again at 6.5 s, past its own
+            // cooldown, counts even though the position event is less than 5 s before it
+            var t0 = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero);
+            svc.AddGeolocation(Fix(0, -0.001, t0));
+            svc.AddGeolocation(Fix(0, +0.001, t0.AddSeconds(1)));
+            for (var s = 2; s <= 6; s++)
+                svc.AddGeolocation(Fix(0, +0.001, t0.AddSeconds(s)));
+            svc.AddGeolocation(Fix(0, -0.001, t0.AddSeconds(7)));
+
+            Assert.Equal(2, svc.ActiveSession.Events.Count(e => e.Type == SessionEventType.Sector));
         }
     }
 
