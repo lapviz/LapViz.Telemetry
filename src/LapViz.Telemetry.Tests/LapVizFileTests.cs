@@ -10,7 +10,7 @@ public class LapVizFileTests
     private static readonly DateTimeOffset Start = new DateTimeOffset(2026, 9, 12, 10, 0, 0, 123, TimeSpan.FromHours(2));
 
     /// <summary>Three samples, a float64 position, a float32 channel, a missing value, two timing sources.</summary>
-    private static LapVizFile Sample()
+    internal static LapVizFile Sample()
     {
         var file = new LapVizFile(Start)
         {

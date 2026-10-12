@@ -22,7 +22,7 @@ public class LapVizReadWriteTests
         return parser.GetSessionData().First();
     }
 
-    private static DeviceSessionData BuildSessionWithEventsFromCsv()
+    internal static DeviceSessionData BuildSessionWithEventsFromCsv()
     {
         var csv = LoadCsvSession();
 
