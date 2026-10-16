@@ -34,6 +34,9 @@ public class LapTimerService : ILapTimer
     // Keep a short history so we can build a trajectory between last & current point
     private readonly LinkedList<GeoTelemetryData> _telemetryData = new LinkedList<GeoTelemetryData>();
 
+    // Last crossing of each boundary, for the per-boundary cooldown
+    private readonly BoundaryCooldown _cooldown = new BoundaryCooldown();
+
     public LapTimerService(ILogger<LapTimerService> logger, LapTimerConfig lapTimerServiceConfig)
     {
         _logger = logger ?? new NullLogger<LapTimerService>();
@@ -60,6 +63,7 @@ public class LapTimerService : ILapTimer
         {
             if (_activeSession != null) CloseSession();
             _circuitConfiguration = circuitConfiguration;
+            _cooldown.Clear();
         }
     }
 
@@ -91,13 +95,13 @@ public class LapTimerService : ILapTimer
             var prev = node.Previous.Value;
             var curr = node.Value;
 
-            // Global cooldown / sector-timeout rule
-            if (!CanDetectEvent(curr)) return;
+            if (_activeSession != null)
+                _activeSession.LastPosition = curr;
 
             var deviceId = string.IsNullOrWhiteSpace(device) ? _config.DeviceId : device;
 
-            // 1) Sector crossing
-            var sectorEvent = SessionEventDetection.DetectSectorCrossing(_circuitConfiguration, prev, curr);
+            // 1) Sector crossing (boundaries still in their cooldown are skipped)
+            var sectorEvent = SessionEventDetection.DetectSectorCrossing(_circuitConfiguration, prev, curr, _cooldown, CooldownTime());
             if (sectorEvent != null)
             {
                 sectorEvent.UserId = _config.UserId;
@@ -173,6 +177,7 @@ public class LapTimerService : ILapTimer
 
             _activeSession = null;
             _telemetryData.Clear();
+            _cooldown.Clear();
             return stopped;
         }
     }
@@ -193,26 +198,13 @@ public class LapTimerService : ILapTimer
     }
 
     /// <summary>
-    /// Global cooldown before considering another sector/position event.
+    /// Minimum time between two crossings of the same boundary (see <see cref="BoundaryCooldown"/>).
     /// Uses circuit.SectorTimeout if set; otherwise falls back to config.MinimumTimeBetweenEvents.
     /// </summary>
-    private bool CanDetectEvent(GeoTelemetryData current)
-    {
-        if (_circuitConfiguration == null) return false;
-
-        var cooldown = _circuitConfiguration.SectorTimeout > 0
+    private TimeSpan CooldownTime()
+        => _circuitConfiguration.SectorTimeout > 0
             ? TimeSpan.FromSeconds(_circuitConfiguration.SectorTimeout)
             : _config.MinimumTimeBetweenEvents;
-
-        if (_activeSession != null && _activeSession.LastEvent != null &&
-            _activeSession.LastEvent.Timestamp + cooldown > current.Timestamp)
-        {
-            _activeSession.LastPosition = current;
-            return false;
-        }
-
-        return true;
-    }
 
     #region ILapTimer members
 

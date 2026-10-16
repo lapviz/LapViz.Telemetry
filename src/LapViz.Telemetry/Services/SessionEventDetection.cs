@@ -14,11 +14,15 @@ internal static class SessionEventDetection
     /// Returns a sector event for the first boundary crossed along the motion
     /// <paramref name="previous"/> → <paramref name="current"/>, or null when no boundary is crossed.
     /// The event timestamp is interpolated at the crossing point; identity fields are left to the caller.
+    /// Boundaries still in their cooldown (see <see cref="BoundaryCooldown"/>) are ignored, and the crossing
+    /// found is recorded in <paramref name="cooldown"/>.
     /// </summary>
     public static SessionDataEvent DetectSectorCrossing(
         CircuitConfiguration circuit,
         GeoTelemetryData previous,
-        GeoTelemetryData current)
+        GeoTelemetryData current,
+        BoundaryCooldown cooldown,
+        TimeSpan cooldownTime)
     {
         var trajectory = new CircuitGeoLine(previous, current);
         var filter = circuit.UseDirection ? CrossingFilter.TowardApex : CrossingFilter.Any;
@@ -28,6 +32,9 @@ internal static class SessionEventDetection
         var crossedFactor = double.MaxValue;
         foreach (var sector in circuit.Segments)
         {
+            if (!cooldown.IsOpen(SectorNumberOf(circuit, sector), current.Timestamp, cooldownTime))
+                continue;
+
             var intersect = sector.Boundary.Intersect(trajectory, filter);
             if (intersect == null)
                 continue;
@@ -47,10 +54,8 @@ internal static class SessionEventDetection
         var dtMs = (current.Timestamp - previous.Timestamp).TotalMilliseconds;
         var adjustedTimestamp = previous.Timestamp.AddMilliseconds(dtMs * crossedFactor);
 
-        // Crossing boundary N completes sector N-1; crossing boundary 1 completes the last sector:
-        //   - Closed circuits: last sector is Segments.Count (finish line == start line)
-        //   - Open circuits:   finish line is last segment; start line is Segments[0]
-        var sectorNumber = crossed.Number == 1 ? circuit.Segments.Count : crossed.Number - 1;
+        var sectorNumber = SectorNumberOf(circuit, crossed);
+        cooldown.Register(sectorNumber, adjustedTimestamp);
 
         return new SessionDataEvent
         {
@@ -62,6 +67,15 @@ internal static class SessionEventDetection
             Factor = crossedFactor
         };
     }
+
+    /// <summary>
+    /// Sector completed by crossing the boundary of <paramref name="segment"/>.
+    /// Crossing boundary N completes sector N-1; crossing boundary 1 completes the last sector:
+    ///   - Closed circuits: last sector is Segments.Count (finish line == start line)
+    ///   - Open circuits:   finish line is last segment; start line is Segments[0]
+    /// </summary>
+    public static int SectorNumberOf(CircuitConfiguration circuit, CircuitSegment segment)
+        => segment.Number == 1 ? circuit.Segments.Count : segment.Number - 1;
 
     /// <summary>
     /// Adds the event to <paramref name="session"/>, computing its lap number, per-event time delta
