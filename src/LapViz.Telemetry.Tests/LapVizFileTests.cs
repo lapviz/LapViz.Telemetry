@@ -302,6 +302,41 @@ public class LapVizFileTests
         }
     }
 
+    [Fact]
+    public void FixesWithoutChannelsKeepTheirPositionSpeedAltitudeAndAccuracy()
+    {
+        // A lap timer session: GPS fixes only, no telemetry channels
+        var data = new DeviceSessionData("phone", string.Empty);
+        data.TelemetryData.Add(new GeoTelemetryData(50.9821, 5.5012) { Timestamp = Start, Speed = 81.5, Accuracy = 3.2 });
+        data.TelemetryData.Add(new GeoTelemetryData(50.9822, 5.5014) { Timestamp = Start.AddMilliseconds(100), Speed = 82.25, Accuracy = 3.1 });
+        data.TelemetryData.Add(new GeoTelemetryData(0, 0) { Timestamp = Start.AddMilliseconds(200) });
+        data.AddEvent(new SessionDataEvent { Type = SessionEventType.Lap, LapNumber = 1, Time = TimeSpan.FromMilliseconds(200), Timestamp = Start.AddMilliseconds(200) });
+
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".lvz");
+        try
+        {
+            new LapVizDataWriter().WriteAll(data, path, overwrite: true);
+
+            var file = LapVizFile.Read(path);
+            Assert.Equal(new[] { "Latitude", "Longitude", "GPS Speed", "GPS Accuracy" }, file.Channels.Select(x => x.Name));
+            Assert.Equal("km/h", file.Channels.Single(x => x.Name == "GPS Speed").Unit);
+
+            var reader = new LapVizDataReader();
+            reader.Load(path);
+            var fixes = reader.GetSessionData().Single().TelemetryData.Cast<GeoTelemetryData>().ToList();
+            Assert.Equal(3, fixes.Count);
+            Assert.Equal(50.9822, fixes[1].Latitude);
+            Assert.Equal(5.5014, fixes[1].Longitude);
+            Assert.Equal(82.25, fixes[1].Speed);
+            Assert.Equal(3.1, fixes[1].Accuracy!.Value, 6);
+            Assert.Null(fixes[2].Speed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static void Write(ZipArchive zip, string name, string content)
     {
         using var stream = zip.CreateEntry(name).Open();
