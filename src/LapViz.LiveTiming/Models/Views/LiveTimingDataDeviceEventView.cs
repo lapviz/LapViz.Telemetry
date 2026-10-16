@@ -52,10 +52,10 @@ public class LiveTimingDataDeviceEventView
                 }
             }
 
-            if (!LiveTimingData.BestSectors.ContainsKey(Sector))
+            if (!LiveTimingData.BestSectors.TryGetValue(Sector, out var bestSector))
                 return true;
 
-            return Time <= LiveTimingData.BestSectors[Sector].Time;
+            return Time <= bestSector.Time;
         }
     }
 

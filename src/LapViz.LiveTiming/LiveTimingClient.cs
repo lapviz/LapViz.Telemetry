@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace LapViz.LiveTiming;
 
-public class LiveTimingClient : IDisposable, INotifyPropertyChanged
+public class LiveTimingClient : IDisposable, IAsyncDisposable, INotifyPropertyChanged
 {
     private HubConnection _connection;
     private string _wsUri;
@@ -15,6 +15,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
     private readonly ConcurrentQueue<SessionDataDeviceDto> _timingDataQueue;
     private readonly CancellationTokenSource _cancellationTokenSource;
     private readonly Task _backgroundWorker;
+    private int _disposed;
 
     public LiveTimingClient(ILogger<LiveTimingClient> logger)
     {
@@ -150,12 +151,14 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
             UserLeft?.Invoke(this, connectionId);
         });
 
-        _connection.Reconnected += _connection_Reconnected;
-        _connection.Reconnecting += _connection_Reconnecting;
+        _connection.Reconnected += OnConnectionReconnected;
+        _connection.Reconnecting += OnConnectionReconnecting;
         _connection.Closed += async (error) =>
         {
             UpdateState();
+            if (IsDisposed) return;
             await Task.Delay(new Random().Next(0, 5) * 1000);
+            if (IsDisposed) return;
             await TryReconnectAndJoinSessions();
         };
     }
@@ -166,7 +169,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         _logger.LogInformation("Connection state changed: {State}", State);
     }
 
-    private Task _connection_Reconnecting(Exception arg)
+    private Task OnConnectionReconnecting(Exception? arg)
     {
         _logger.LogDebug("Reconnecting");
         UpdateState();
@@ -174,7 +177,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         return Task.CompletedTask;
     }
 
-    private async Task _connection_Reconnected(string arg)
+    private async Task OnConnectionReconnected(string? arg)
     {
         _logger.LogDebug("Reconnected");
         UpdateState();
@@ -212,7 +215,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            throw new Exception("Failed to disconnect: " + ex.Message);
+            throw new InvalidOperationException("Failed to disconnect: " + ex.Message, ex);
         }
         finally
         {
@@ -227,13 +230,13 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
             _logger.LogDebug("Creating session");
 
             if (_connection == null || _connection.State != HubConnectionState.Connected)
-                throw new Exception("Can't create session: not connected");
+                throw new InvalidOperationException("Can't create session: not connected");
 
             var sessionId = await _connection.InvokeAsync<string>("CreateSession", createRequestDto);
             if (string.IsNullOrWhiteSpace(sessionId))
             {
                 OnError("CreateSessionFailed", "Server returned an error");
-                throw new Exception("Failed to join session. Server returned an error");
+                throw new InvalidOperationException("Failed to create session. Server returned an error");
             }
 
             _logger.LogInformation("Session {sessionId} created", sessionId);
@@ -256,13 +259,13 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
             _logger.LogDebug("Getting circuit session code");
 
             if (_connection == null || _connection.State != HubConnectionState.Connected)
-                throw new Exception("Can't get circuit public session: not connected");
+                throw new InvalidOperationException("Can't get circuit public session: not connected");
 
             var sessionId = await _connection.InvokeAsync<string>("GetCircuitPublicSession", circuitCode);
             if (string.IsNullOrWhiteSpace(sessionId))
             {
                 OnError("GetCircuitPublicSessionFailed", "Server returned an error");
-                throw new Exception("Failed get circuit public session. Server returned an error");
+                throw new InvalidOperationException("Failed to get circuit public session. Server returned an error");
             }
 
             _logger.LogInformation("Session {sessionId} retrieved", sessionId);
@@ -278,7 +281,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         }
     }
 
-    public virtual async Task JoinSession(string sessionId, string password)
+    public virtual async Task JoinSession(string sessionId, string? password)
     {
         try
         {
@@ -288,7 +291,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
             {
                 var result = await _connection.InvokeAsync<bool>("JoinSession", sessionId, password);
                 if (!result)
-                    throw new Exception("Failed to join session. Server returned an error");
+                    throw new InvalidOperationException("Failed to join session. Server returned an error");
 
                 if (!JoinedSessions.ContainsKey(sessionId))
                     JoinedSessions.Add(sessionId, password);
@@ -315,7 +318,7 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
             {
                 var result = await _connection.InvokeAsync<bool>("LeaveSession", sessionId);
                 if (!result)
-                    throw new Exception("Failed to leave session. Server returned an error");
+                    throw new InvalidOperationException("Failed to leave session. Server returned an error");
 
                 if (JoinedSessions.ContainsKey(sessionId))
                     JoinedSessions.Remove(sessionId);
@@ -340,17 +343,19 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         const int maxRetries = 5;
         int retryCount = 0;
 
-        while (_connection.State == HubConnectionState.Disconnected && retryCount < maxRetries)
+        while (!IsDisposed && _connection.State == HubConnectionState.Disconnected && retryCount < maxRetries)
         {
             try
             {
                 _logger.LogInformation("Attempt {retryCount} to reconnect...", retryCount + 1);
                 await _connection.StartAsync();
 
-                foreach (var joinedSession in JoinedSessions)
+                foreach (var joinedSession in JoinedSessions.ToList())
                 {
                     await JoinSession(joinedSession.Key, joinedSession.Value);
                 }
+
+                return;
             }
             catch (Exception ex)
             {
@@ -362,7 +367,8 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
             }
         }
 
-        _logger.LogError("Max reconnect attempts reached. Giving up.");
+        if (!IsDisposed && _connection.State == HubConnectionState.Disconnected)
+            _logger.LogError("Max reconnect attempts reached. Giving up.");
     }
 
 
@@ -394,15 +400,8 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
 
     public void AddEventData(SessionDataDeviceDto sessionDeviceDataDto)
     {
-        try
-        {
-            _timingDataQueue.Enqueue(sessionDeviceDataDto);
-            QueueSize = _timingDataQueue.Count;
-        }
-        catch (Exception ex)
-        {
-            throw;
-        }
+        _timingDataQueue.Enqueue(sessionDeviceDataDto);
+        QueueSize = _timingDataQueue.Count;
     }
 
     private async Task SendEventData(SessionDataDeviceDto data)
@@ -411,14 +410,14 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         {
             try
             {
-                var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, _cancellationTokenSource.Token);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, _cancellationTokenSource.Token);
 
                 if (_connection != null && _connection.State == HubConnectionState.Connected)
                 {
                     var result = await _connection.InvokeAsync<bool>("addEventData", data, linkedCts.Token);
                     if (!result)
-                        throw new Exception("Failed to add events to server. Server returned an error.");
+                        throw new InvalidOperationException("Failed to add events to server. Server returned an error.");
                     MessagesSent++;
                     _logger.LogDebug("Data sent successfully.");
                     return;
@@ -427,6 +426,10 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
                 {
                     _logger.LogWarning("Connection not ready. Retrying in 1s...");
                 }
+            }
+            catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
+            {
+                return; // client disposed
             }
             catch (OperationCanceledException)
             {
@@ -439,7 +442,14 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
                 OnError("SendEventDataFailed", ex.Message);
             }
 
-            await Task.Delay(1000);
+            try
+            {
+                await Task.Delay(1000, _cancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
         }
     }
 
@@ -458,10 +468,14 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
                 }
                 else
                 {
-                    await Task.Delay(100);
+                    await Task.Delay(100, _cancellationTokenSource.Token);
                 }
             }
-            catch(Exception ex)
+            catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to process queue: {message}", ex.Message);
                 //throw;
@@ -469,17 +483,28 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         }
     }
 
-    ~LiveTimingClient()
-    {
-        _cancellationTokenSource.Cancel();
-    }
+    private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
+    /// <summary>
+    /// Stops the background sender and closes the connection.
+    /// Prefer <see cref="DisposeAsync"/> from async code.
+    /// </summary>
     public void Dispose()
     {
-        _cancellationTokenSource?.Cancel();
+        // Run on the thread pool so blocking here cannot deadlock a UI synchronization context
+        Task.Run(() => DisposeAsync().AsTask()).GetAwaiter().GetResult();
+        GC.SuppressFinalize(this);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        _cancellationTokenSource.Cancel();
         try
         {
-            _backgroundWorker?.Wait();
+            await _backgroundWorker.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -490,22 +515,25 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
         {
             try
             {
-                _connection.StopAsync().Wait();
-                _connection.DisposeAsync().AsTask().Wait();
+                await _connection.StopAsync().ConfigureAwait(false);
+                await _connection.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error during connection dispose.");
             }
         }
+
         while (_timingDataQueue.TryDequeue(out _)) { }
+        _cancellationTokenSource.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     #region Properties
 
-    public IDictionary<string, string> JoinedSessions { get; private set; } = new Dictionary<string, string>();
+    public IDictionary<string, string?> JoinedSessions { get; private set; } = new Dictionary<string, string?>();
 
-    private int _queueSize = 0;
+    private int _queueSize;
     public int QueueSize
     {
         get => _queueSize;
@@ -600,8 +628,8 @@ public class LiveTimingClient : IDisposable, INotifyPropertyChanged
     public event EventHandler<string> UserJoined;
     public event EventHandler<string> UserLeft;
 
-    public event PropertyChangedEventHandler PropertyChanged;
-    protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }

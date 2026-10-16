@@ -277,7 +277,7 @@ public class DelimitedDataReaderTests
             {
                 new DelimitedDataReaderChannelMap { CommonChannelName = "Time",     FormatChannelName = "TS" },
                 new DelimitedDataReaderChannelMap { CommonChannelName = "Latitude", FormatChannelName = "Lat" },
-                new DelimitedDataReaderChannelMap { CommonChannelName = "Longitude",FormatChannelName = "Lon" },
+                new DelimitedDataReaderChannelMap { CommonChannelName = "Longitude", FormatChannelName = "Lon" },
                 new DelimitedDataReaderChannelMap { CommonChannelName = "Speed",    FormatChannelName = "Vms" },
             };
 

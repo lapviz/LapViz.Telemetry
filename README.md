@@ -27,6 +27,12 @@ It powers all LapViz applications (Laptimer, Stopwatch, and our forthcoming web 
 * ⏱ **Timing utilities**  
   Work with laps, sectors, positions, timestamps, and live updates.
 
+* 📦 **Open file format**  
+  The LapViz format (`.lvz`) stores a session: full resolution samples with their units, laps and sectors of
+  several timing sources, driver, vehicle, device and circuit. It is open and documented in
+  [docs/lapviz-format.md](docs/lapviz-format.md); `LapVizFile` reads and writes it, and the readers of the other
+  formats convert to it (`LapVizFile.FromDeviceSessionData`).
+
 * 🌐 **Open live timing client**  
   Built-in SignalR client for [OpenLiveTiming.com](https://openlivetiming.com), serving as both a **ready-to-use client** and **reference integration** for laptimer apps or timekeeping systems. We also plan to release our own iOS & Android Laptimer (primarily used for tests) as open source, to encourage integration with existing laptimers, whether hardware-based or app-based.
 

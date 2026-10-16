@@ -4,7 +4,7 @@ namespace LapViz.Telemetry.Tests.Services;
 
 public class LapTimerConfigTests
 {
-    private static bool IsGuid(string s) => Guid.TryParse(s, out _);
+    private static bool IsGuid(string? s) => Guid.TryParse(s, out _);
 
     public sealed class Defaults
     {
@@ -125,7 +125,7 @@ public class LapTimerConfigTests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("   ")]
-        public void Setting_NullOrWhitespace_Generates_New_Guid(string value)
+        public void Setting_NullOrWhitespace_Generates_New_Guid(string? value)
         {
             var cfg = new LapTimerConfig();
             var before = cfg.DeviceId;

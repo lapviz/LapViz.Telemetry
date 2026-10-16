@@ -56,8 +56,8 @@ public class CircuitConfiguration
     public bool UseDirection { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum allowed time (in seconds) for completing a sector,
-    /// used to filter invalid or incomplete lap data.
+    /// Gets or sets the minimum time (in seconds) between two crossings of the same boundary.
+    /// When greater than zero, it overrides <c>LapTimerConfig.MinimumTimeBetweenEvents</c>.
     /// </summary>
     public int SectorTimeout { get; set; }
 

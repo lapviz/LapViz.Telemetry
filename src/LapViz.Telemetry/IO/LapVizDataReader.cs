@@ -11,8 +11,8 @@ using LapViz.Telemetry.Domain;
 namespace LapViz.Telemetry.IO;
 
 /// <summary>
-/// Reads LapViz delimited telemetry files written by <see cref="LapVizDataWriter"/>.
-/// Supports plain text or ".lvz" (zip) with a single data entry.
+/// Reads LapViz files: version 2 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>) and the version 1 delimited text,
+/// plain or in a ".lvz" zip with a single data entry.
 /// Uses a single-pass parser that:
 ///   - waits for "#Fields=" before reading any data,
 ///   - parses "#Event=" lines at any time,
@@ -25,7 +25,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     private const string VERSION = "#Version=1";
     private const string FIELDS_PREFIX = "#Fields=";
     private const string EVENT_PREFIX = "#Event=";
-    private const string CIRCUIT_PREFX = "#CircuitCode=";
+    private const string CIRCUIT_PREFIX = "#CircuitCode=";
 
     private IList<string> _channels;
     private int _latIndex = -1, _lonIndex = -1, _altIndex = -1, _spdIndex = -1, _accIndex = -1;
@@ -41,6 +41,12 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     public override IList<string> GetTelemetryChannels()
     {
         EnsureFileLoaded();
+
+        if (IsVersion2(_filename))
+        {
+            _channels = LapVizFile.Read(_filename).Channels.Select(x => x.Name).ToList();
+            return _channels;
+        }
 
         using (var dataStream = OpenDataStream(_filename))
         using (var reader = new StreamReader(dataStream, new UTF8Encoding(false), true))
@@ -75,6 +81,15 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     {
         EnsureFileLoaded();
 
+        if (IsVersion2(_filename))
+        {
+            var data = LapVizFile.Read(_filename).ToDeviceSessionData();
+            data.OriginalFilename = Path.GetFileName(_filename);
+            data.SourceFileHash = GetHash();
+            _channels = data.TelemetryChannels;
+            return new List<DeviceSessionData> { data };
+        }
+
         var session = new DeviceSessionData(string.Empty, string.Empty)
         {
             Generator = "LapViz",
@@ -101,9 +116,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                     if (line.StartsWith(TOPHEADER, StringComparison.Ordinal)) continue;
                     if (line.StartsWith(VERSION, StringComparison.Ordinal)) continue;
 
-                    if (line.StartsWith(CIRCUIT_PREFX, StringComparison.Ordinal))
+                    if (line.StartsWith(CIRCUIT_PREFIX, StringComparison.Ordinal))
                     {
-                        session.CircuitCode = line.Substring(CIRCUIT_PREFX.Length).Trim();
+                        session.CircuitCode = line.Substring(CIRCUIT_PREFIX.Length).Trim();
                         continue;
                     }
 
@@ -130,6 +145,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                                 evt.Timestamp = last.Timestamp;
                             session.AddEvent(evt);
                         }
+
+
+                        continue;
                         continue;
                     }
 
@@ -169,6 +187,9 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
         if (string.IsNullOrWhiteSpace(filename)) return false;
 
         if (filename.EndsWith(".lvz", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (IsVersion2(filename))
             return true;
 
         try
@@ -218,7 +239,23 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
                 return ms;
             }
         }
+
+
         return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
+    /// <summary>A LapViz version 2 file: a zip archive holding the manifest.</summary>
+    private static bool IsVersion2(string filename)
+    {
+        try
+        {
+            return IsZipFile(filename) && LapVizFile.IsLapVizArchive(filename);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -234,8 +271,15 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
             using (var fs = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 if (fs.Length < 4) return false;
-                fs.Read(sig, 0, 4);
+                int bytesRead = 0;
+                while (bytesRead < 4)
+                {
+                    int n = fs.Read(sig, bytesRead, 4 - bytesRead);
+                    if (n == 0) return false;
+                    bytesRead += n;
+                }
             }
+
             return sig[0] == (byte)'P' && sig[1] == (byte)'K' && sig[2] == 3 && sig[3] == 4;
         }
         catch { return false; }
@@ -257,7 +301,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
     /// Parses an event line in the form "#Event=tsMs,Type,Lap,Sector,TimeTicks".
     /// Returns null if the line is malformed.
     /// </summary>
-    private SessionDataEvent ParseEvent(string line)
+    private static SessionDataEvent ParseEvent(string line)
     {
         try
         {
