@@ -140,11 +140,15 @@ public sealed partial class LapVizFile
             file.AddChannel(new LapVizChannel(name, null, ChooseType(name, values)), values);
         }
 
-        // GPS samples without position columns: the position becomes channels
+        // GPS samples without position columns: the position, speed, altitude and accuracy of the fixes become channels
         if (samples.Count > 0 && file.IndexOf("Latitude") < 0 && file.IndexOf("Longitude") < 0 && samples.All(x => x is GeoTelemetryData))
         {
-            file.AddChannel(new LapVizChannel("Latitude", "deg"), samples.Select(x => Position(((GeoTelemetryData)x).Latitude, ((GeoTelemetryData)x).Longitude, true)).ToArray());
-            file.AddChannel(new LapVizChannel("Longitude", "deg"), samples.Select(x => Position(((GeoTelemetryData)x).Latitude, ((GeoTelemetryData)x).Longitude, false)).ToArray());
+            var fixes = samples.Cast<GeoTelemetryData>().ToList();
+            file.AddChannel(new LapVizChannel("Latitude", "deg"), fixes.Select(x => Position(x.Latitude, x.Longitude, true)).ToArray());
+            file.AddChannel(new LapVizChannel("Longitude", "deg"), fixes.Select(x => Position(x.Latitude, x.Longitude, false)).ToArray());
+            AddFixChannel(file, fixes, "GPS Speed", "km/h", x => x.Speed);
+            AddFixChannel(file, fixes, "Altitude", "m", x => x.Altitude == 0 ? null : x.Altitude);
+            AddFixChannel(file, fixes, "GPS Accuracy", "m", x => x.Accuracy);
         }
 
         if (events.Any(x => (x.Type == SessionEventType.Lap || x.Type == SessionEventType.Sector) && x.Time > TimeSpan.Zero))
@@ -289,6 +293,16 @@ public sealed partial class LapVizFile
         }
 
         return result;
+    }
+
+    /// <summary>A channel from a value of the fixes, when it is not already a column and at least one fix has it.</summary>
+    private static void AddFixChannel(LapVizFile file, List<GeoTelemetryData> fixes, string name, string unit, Func<GeoTelemetryData, double?> value)
+    {
+        if (file.IndexOf(name) >= 0 || !fixes.Any(x => value(x).HasValue))
+            return;
+
+        var values = fixes.Select(x => value(x) ?? double.NaN).ToArray();
+        file.AddChannel(new LapVizChannel(name, unit, ChooseType(name, values)), values);
     }
 
     private static double Position(double latitude, double longitude, bool isLatitude) =>
