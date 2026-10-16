@@ -11,17 +11,21 @@ public enum CrossingFilter
     /// Useful when only the existence of a crossing matters.
     /// </summary>
     Any = 0,
+    /// of the segment toward the apex side.
+
 
     /// <summary>
     /// Accept only if the trajectory crosses from the "non-apex" side
-    /// of the segment toward the apex side.  
+    /// of the segment toward the apex side.
     /// Example: detecting valid entry into a corner or sector gate.
     /// </summary>
     TowardApex = 1,
+    /// back to the "non-apex" side.
+
 
     /// <summary>
     /// Accept only if the trajectory crosses from the apex side
-    /// back to the "non-apex" side.  
+    /// back to the "non-apex" side.
     /// Example: detecting exits, invalid reverse passes,
     /// or filtering out repeated crossings in the wrong direction.
     /// </summary>

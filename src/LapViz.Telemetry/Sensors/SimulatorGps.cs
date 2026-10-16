@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,7 +23,10 @@ namespace LapViz.Telemetry.Sensors;
 ///  - <see cref="DataReceived"/>: fires with each <see cref="GeoTelemetryData"/> sample.
 ///  - <see cref="StateChanged"/>: emits lifecycle transitions.
 /// </summary>
+// Also implements the obsolete misspelled interface so existing ITelemtrySensor variables keep compiling
+#pragma warning disable CS0618
 public class SimulatorGps : ITelemtrySensor, IDisposable
+#pragma warning restore CS0618
 {
     private readonly ILogger _logger;
     private readonly DeviceSessionData _driverRace;   // optional source; if null, we use an embedded CSV
@@ -33,7 +37,7 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
     // CSV field indexes (auto-discovered from header)
     private int _latitudeColumnIndex = 1;
     private int _longitudeColumnIndex = 2;
-    private int _timeIndex = 0;
+    private int _timeIndex;
     private int _distanceGps = -1;
     private int _speed = -1;
 
@@ -214,7 +218,7 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
         try
         {
             // Default embedded sample (kept from your original code)
-            const string resourceName = "LapViz.Telemetry.Resources.GenkSessionWithPit.csv";
+            const string resourceName = "LapViz.Telemetry.Resources.GenkSessionWithPit.csv.gz";
             var assembly = Assembly.GetExecutingAssembly();
 
             using (var stream = assembly.GetManifestResourceStream(resourceName))
@@ -222,7 +226,8 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
                 if (stream == null)
                     throw new FileNotFoundException("Embedded resource not found.", resourceName);
 
-                using (var reader = new StreamReader(stream))
+                using (var gzip = new GZipStream(stream, CompressionMode.Decompress))
+                using (var reader = new StreamReader(gzip))
                 {
                     await ProcessStreamAsync(reader, ct).ConfigureAwait(false);
                 }
@@ -248,7 +253,7 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
         var timeDelta = TimeSpan.Zero;
         double? lastDistance = null;
 
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested)
         {
             string line = reader.ReadLine();
             if (line == null) break;
@@ -267,8 +272,9 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
             // One-time skip (consume N lines and reset)
             if (_skipDataOnce > 0)
             {
-                for (int i = 0; i < _skipDataOnce && !reader.EndOfStream; i++)
-                    reader.ReadLine();
+                for (int i = 0; i < _skipDataOnce && reader.ReadLine() != null; i++)
+                {
+                }
                 _skipDataOnce = 0;
                 continue;
             }
@@ -339,8 +345,9 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
             }
 
             // Continuous skip to simulate lower rate
-            for (int i = 0; i < _skipData && !reader.EndOfStream; i++)
-                reader.ReadLine();
+            for (int i = 0; i < _skipData && reader.ReadLine() != null; i++)
+            {
+            }
         }
     }
 
@@ -354,10 +361,12 @@ public class SimulatorGps : ITelemtrySensor, IDisposable
     {
         // Guard against overflow: DateTime supports roughly years 0001..9999
         return s_epochUtc.AddMilliseconds(unixTimeMs);
+    /// Parses the header row and maps column indices.
+
     }
 
     /// <summary>
-    /// Parses the header row and maps column indices. 
+    /// Parses the header row and maps column indices.
     /// Looks for common field names: Latitude, Longitude, Time, "Distance GPS", KPH.
     /// </summary>
     private void ParseFieldDefinition(string line)

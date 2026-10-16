@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <PropertyGroup Label="Settings">
     <Deterministic>true</Deterministic>
     <LangVersion>12</LangVersion>
@@ -18,6 +18,9 @@
   </PropertyGroup>
   <PropertyGroup Label="Deterministic Build" Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <!-- The build is warning-free; keep it that way on this repository's CI without blocking local
+         iterations, nor repositories that build these projects as a submodule (OpenLiveTiming) -->
+    <TreatWarningsAsErrors Condition="'$(GITHUB_REPOSITORY)' == 'lapviz/LapViz.Telemetry'">true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup Condition="$(IsPackable)">
     <None Include="$(MSBuildThisFileDirectory)../resources/nuget/logo.png">
@@ -54,7 +57,7 @@
   <!-- Allow folks to build with minimal dependencies (though they will need to provide their own Version data) -->
   <ItemGroup Label="Build Tools Package References" Condition="'$(UseBuildTimeTools)' != 'false'">
     <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers" Version="1.1.118">
       <PrivateAssets>All</PrivateAssets>
     </PackageReference>

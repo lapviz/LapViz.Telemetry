@@ -38,8 +38,8 @@ public sealed class LapTimerConfig
     }
 
     /// <summary>
-    /// Minimum time separation between detected events (sector crossings) when the circuit
-    /// does not override it with its own <c>SectorTimeout</c>. Must be &gt;= TimeSpan.Zero.
+    /// Minimum time between two crossings of the same boundary (the other boundaries stay open) when the
+    /// circuit does not override it with its own <c>SectorTimeout</c>. Must be &gt;= TimeSpan.Zero.
     /// Default: 5 seconds.
     /// </summary>
     public TimeSpan MinimumTimeBetweenEvents
@@ -119,6 +119,9 @@ public sealed class LapTimerConfig
     {
         if (string.IsNullOrWhiteSpace(_deviceId))
             _deviceId = Guid.NewGuid().ToString();
+        // UserId is optional; leave as-is.
+
+
         // UserId is optional; leave as-is.
     }
 }

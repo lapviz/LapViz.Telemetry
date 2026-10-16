@@ -62,5 +62,4 @@ public class LiveTimingDataDeviceView
         }
         return dict;
     }
-
 }

@@ -244,6 +244,48 @@ public class LiveTimingDataViewTests
     public sealed class GetRanking_Tests
     {
         [Fact]
+        public void Deletion_Received_Before_The_Lap_Keeps_It_Deleted()
+        {
+            var view = NewView();
+            var t0 = DateTimeOffset.UtcNow;
+
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[] { Ev("a1", SessionEventTypeDto.Lap, 1, 0, t0, 60_000, deleted: true) }), false);
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[] { Ev("a1", SessionEventTypeDto.Lap, 1, 0, t0, 60_000) }), false);
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[] { Ev("a2", SessionEventTypeDto.Lap, 2, 0, t0.AddMinutes(1), 62_000) }), false);
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[] { Ev("a2", SessionEventTypeDto.Lap, 2, 0, t0.AddMinutes(1), 62_000) }), false); // twice
+
+            var row = Assert.Single(view.GetRanking(LiveTimingDataRankingType.Qualifying).Rows);
+
+            Assert.Equal("1", row.Laps);
+            Assert.Equal(TimeSpan.FromMilliseconds(62_000), view.BestLap.Time);
+        }
+
+        [Fact]
+        public void Laps_Counts_The_Completed_Laps_And_LastLap_Skips_The_Lap_In_Progress()
+        {
+            var view = NewView();
+            var t0 = DateTimeOffset.UtcNow;
+
+            // Lap 2 deleted; lap 4 in progress, sent without time at its start.
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[]
+            {
+                Ev("a1", SessionEventTypeDto.Lap, 1, 0, t0, 60_000),
+                Ev("a2", SessionEventTypeDto.Lap, 2, 0, t0.AddMinutes(1), 61_000, deleted: true),
+                Ev("a3", SessionEventTypeDto.Lap, 3, 0, t0.AddMinutes(2), 62_000),
+            }), false);
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[]
+            {
+                new SessionDeviceEventDto { Id = "a4", Type = SessionEventTypeDto.Lap, LapNumber = 4, Timestamp = t0.AddMinutes(4) },
+            }), false);
+
+            var row = Assert.Single(view.GetRanking(LiveTimingDataRankingType.Qualifying).Rows);
+
+            Assert.Equal("2", row.Laps);
+            Assert.Equal("a3", row.LastLap.Event!.Id);
+            Assert.Equal("a3", view.Devices.Single().LastLap.Id);
+        }
+
+        [Fact]
         public void Builds_Ranking_With_Gap_Interval_And_PreviousRank()
         {
             var view = NewView();
