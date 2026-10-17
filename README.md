@@ -31,7 +31,7 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
 
 * 📦 **Open file format**  
   The LapViz format (`.lvz`) stores a session: full resolution samples with their units, laps and sectors of
-  several timing sources, driver, vehicle, device and circuit. It is open and documented in
+  several timing sources, driver, vehicle, device, circuit, setup sheet and notes. It is open and documented in
   [docs/lapviz-format.md](docs/lapviz-format.md); `LapVizFile` reads and writes it, and the readers of the other
   formats convert to it (`LapVizFile.FromDeviceSessionData`).
 

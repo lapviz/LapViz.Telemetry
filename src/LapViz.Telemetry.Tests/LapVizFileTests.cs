@@ -22,6 +22,19 @@ public class LapVizFileTests
         file.Session.Circuit = new LapVizCircuit { Code = "genk", Name = "Karting Genk", CountryCode = "BE" };
         file.Session.SourceFile = "alice.xrk";
         file.Session.Properties["tyres"] = "MG Red";
+        file.Session.Setup = new VehicleSetup
+        {
+            Tyres = "MG Red",
+            TyreCondition = TyreCondition.Used,
+            TyreLaps = 42,
+            PressureFront = 0.65,
+            PressureRear = 0.7,
+            GearingFront = 11,
+            GearingRear = 80,
+            Chassis = "Medium axle",
+            Feeling = 4,
+        };
+        file.Session.Notes = "Oversteer out of turn 3";
 
         file.SetTime(new long[] { 0, 100_000, 200_001 });
         file.AddChannel(new LapVizChannel("Latitude", "deg"), new[] { 50.98213456789, 50.98213556789, double.NaN });
@@ -77,6 +90,19 @@ public class LapVizFileTests
         Assert.Equal("alice.xrk", read.Session.SourceFile);
         Assert.Equal("MG Red", read.Session.Properties["tyres"]);
         Assert.Equal("Tests", read.Generator!.Name);
+
+        var setup = read.Session.Setup!;
+        Assert.Equal("MG Red", setup.Tyres);
+        Assert.Equal(TyreCondition.Used, setup.TyreCondition);
+        Assert.Equal(42, setup.TyreLaps);
+        Assert.Equal(0.65, setup.PressureFront);
+        Assert.Equal(0.7, setup.PressureRear);
+        Assert.Equal(11, setup.GearingFront);
+        Assert.Equal(80, setup.GearingRear);
+        Assert.Null(setup.Carburation);
+        Assert.Equal("Medium axle", setup.Chassis);
+        Assert.Equal(4, setup.Feeling);
+        Assert.Equal("Oversteer out of turn 3", read.Session.Notes);
 
         Assert.Equal(2, read.Timing.Count);
         Assert.True(read.Timing[0].IsDevice);
@@ -245,6 +271,53 @@ public class LapVizFileTests
         Assert.Equal(LapVizValueType.Float32, back.Channels.Single(x => x.Name == "RPM").Type);
         Assert.Equal(LapVizValueType.Float64, back.Channels.Single(x => x.Name == "Latitude").Type);
         Assert.Equal("51234", back.Session.Device!.Serial);
+        Assert.Equal(42, data.Setup!.TyreLaps);
+        Assert.Equal(TyreCondition.Used, back.Session.Setup!.TyreCondition);
+        Assert.Equal("Oversteer out of turn 3", back.Session.Notes);
+    }
+
+    [Fact]
+    public void TheSetupIsWrittenAsInTheSpecification()
+    {
+        var file = new LapVizFile(Start);
+        file.Session.Setup = new VehicleSetup { TyreCondition = TyreCondition.Scrubbed, PressureFront = 0.65 };
+
+        using var zip = new ZipArchive(new MemoryStream(file.ToBytes()));
+        using var reader = new StreamReader(zip.GetEntry("lapviz.json")!.Open());
+        var manifest = reader.ReadToEnd();
+
+        Assert.Contains("\"setup\":{\"tyreCondition\":\"scrubbed\",\"pressureFront\":0.65}", manifest.Replace(" ", string.Empty).Replace("\n", string.Empty).Replace("\r", string.Empty));
+        Assert.DoesNotContain("notes", manifest);
+
+        file.Session.Setup = new VehicleSetup();
+        Assert.Null(LapVizFile.Read(new MemoryStream(file.ToBytes())).Session.Setup); // An empty sheet is not written
+    }
+
+    [Fact]
+    public void InvalidSetupMembersAreIgnored()
+    {
+        const string manifest = """
+            {
+              "format": "lapviz", "version": 2, "channels": [],
+              "session": {
+                "start": "2026-09-12T08:00:00Z",
+                "setup": { "tyres": "Vega", "tyreCondition": "melted", "tyreLaps": -3, "pressureFront": "0.65", "gearingRear": 80.5, "feeling": 9, "future": 1 }
+              }
+            }
+            """;
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+            Write(zip, "lapviz.json", manifest);
+
+        stream.Position = 0;
+        var setup = LapVizFile.Read(stream).Session.Setup!;
+
+        Assert.Equal("Vega", setup.Tyres);
+        Assert.Null(setup.TyreCondition);
+        Assert.Null(setup.TyreLaps);
+        Assert.Null(setup.PressureFront);
+        Assert.Null(setup.GearingRear);
+        Assert.Null(setup.Feeling);
     }
 
     [Fact]
