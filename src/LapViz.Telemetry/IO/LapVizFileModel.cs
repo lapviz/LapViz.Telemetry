@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LapViz.Telemetry.Domain;
 
 namespace LapViz.Telemetry.IO;
 
@@ -73,6 +74,12 @@ public sealed class LapVizSessionInfo
 
     /// <summary>Name of the file the session was converted from.</summary>
     public string? SourceFile { get; set; }
+
+    /// <summary>Setup sheet of the vehicle and feeling of the driver, as known when the file was written.</summary>
+    public VehicleSetup? Setup { get; set; }
+
+    /// <summary>Free notes of the driver or the team (conditions, changes, feeling).</summary>
+    public string? Notes { get; set; }
 
     /// <summary>Free metadata.</summary>
     public IDictionary<string, string> Properties { get; set; } = new Dictionary<string, string>();
