@@ -25,6 +25,8 @@ public sealed partial class LapVizFile
             DeviceBrand = Session.Device?.Brand,
             DeviceName = Session.Device?.Model,
             OriginalFilename = Session.SourceFile,
+            Setup = Session.Setup,
+            Notes = Session.Notes,
             CircuitCode = Session.Circuit?.Code ?? PreferredTiming?.Circuit?.Code,
             TelemetryChannels = _channels.Select(x => x.Name).ToList(),
         };
@@ -114,6 +116,8 @@ public sealed partial class LapVizFile
                 Driver = Empty(data.DriverDisplayName),
                 Vehicle = Empty(data.VehicleName),
                 SourceFile = Empty(data.OriginalFilename),
+                Setup = data.Setup is { IsEmpty: false } ? data.Setup : null,
+                Notes = Empty(data.Notes),
                 Device = Empty(data.DeviceBrand) == null && Empty(data.DeviceName) == null && Empty(data.DeviceId) == null
                     ? null
                     : new LapVizDevice { Brand = Empty(data.DeviceBrand), Model = Empty(data.DeviceName), Serial = Empty(data.DeviceId) },
