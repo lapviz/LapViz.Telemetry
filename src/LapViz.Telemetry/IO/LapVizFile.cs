@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using LapViz.Telemetry.Domain;
 
 namespace LapViz.Telemetry.IO;
 
@@ -566,6 +567,8 @@ public sealed partial class LapVizFile
             WriteCircuit(json, Session.Circuit);
             WriteOptional(json, "description", Session.Description);
             WriteOptional(json, "sourceFile", Session.SourceFile);
+            WriteSetup(json, Session.Setup);
+            WriteOptional(json, "notes", Session.Notes);
             if (Session.Properties != null && Session.Properties.Count > 0)
             {
                 json.WriteStartObject("properties");
@@ -657,6 +660,37 @@ public sealed partial class LapVizFile
         json.WriteEndObject();
     }
 
+    private static void WriteSetup(Utf8JsonWriter json, VehicleSetup? setup)
+    {
+        if (setup == null || setup.IsEmpty)
+            return;
+
+        json.WriteStartObject("setup");
+        WriteOptional(json, "tyres", setup.Tyres);
+        WriteOptional(json, "tyreCondition", setup.TyreCondition?.ToString().ToLowerInvariant());
+        WriteOptional(json, "tyreLaps", setup.TyreLaps);
+        WriteOptional(json, "pressureFront", setup.PressureFront);
+        WriteOptional(json, "pressureRear", setup.PressureRear);
+        WriteOptional(json, "gearingFront", setup.GearingFront);
+        WriteOptional(json, "gearingRear", setup.GearingRear);
+        WriteOptional(json, "carburation", setup.Carburation);
+        WriteOptional(json, "chassis", setup.Chassis);
+        WriteOptional(json, "feeling", setup.Feeling);
+        json.WriteEndObject();
+    }
+
+    private static void WriteOptional(Utf8JsonWriter json, string name, double? value)
+    {
+        if (value.HasValue && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value))
+            json.WriteNumber(name, value.Value);
+    }
+
+    private static void WriteOptional(Utf8JsonWriter json, string name, int? value)
+    {
+        if (value.HasValue)
+            json.WriteNumber(name, value.Value);
+    }
+
     private static void WriteOptional(Utf8JsonWriter json, string name, string? value)
     {
         if (!string.IsNullOrEmpty(value))
@@ -701,6 +735,8 @@ public sealed partial class LapVizFile
             file.Session.Vehicle = String(session, "vehicle");
             file.Session.Description = String(session, "description");
             file.Session.SourceFile = String(session, "sourceFile");
+            file.Session.Setup = Setup(session);
+            file.Session.Notes = String(session, "notes");
             file.Session.Circuit = Circuit(session);
             if (session.TryGetProperty("device", out var device) && device.ValueKind == JsonValueKind.Object)
             {
@@ -805,6 +841,34 @@ public sealed partial class LapVizFile
 
         return new LapVizCircuit { Code = String(circuit, "code"), Name = String(circuit, "name"), CountryCode = String(circuit, "countryCode") };
     }
+
+    /// <summary>The setup of the session; members of the wrong type or out of their range are ignored.</summary>
+    private static VehicleSetup? Setup(JsonElement session)
+    {
+        if (!session.TryGetProperty("setup", out var element) || element.ValueKind != JsonValueKind.Object)
+            return null;
+
+        var condition = String(element, "tyreCondition");
+        var feeling = Integer(element, "feeling");
+        var setup = new VehicleSetup
+        {
+            Tyres = String(element, "tyres"),
+            TyreCondition = condition != null && Enum.TryParse<TyreCondition>(condition, ignoreCase: true, out var parsed) &&
+                Enum.IsDefined(typeof(TyreCondition), parsed) && !int.TryParse(condition, out _) ? parsed : null,
+            TyreLaps = Integer(element, "tyreLaps") is >= 0 and var laps ? laps : null,
+            PressureFront = Number(element, "pressureFront"),
+            PressureRear = Number(element, "pressureRear"),
+            GearingFront = Integer(element, "gearingFront"),
+            GearingRear = Integer(element, "gearingRear"),
+            Carburation = String(element, "carburation"),
+            Chassis = String(element, "chassis"),
+            Feeling = feeling is >= 1 and <= VehicleSetup.MaxFeeling ? feeling : null,
+        };
+        return setup.IsEmpty ? null : setup;
+    }
+
+    private static int? Integer(JsonElement parent, string name) =>
+        parent.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var i) ? i : (int?)null;
 
     private static string? String(JsonElement parent, string name) =>
         parent.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
