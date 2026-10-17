@@ -180,6 +180,16 @@ public class DeviceSessionData : SessionEvents
     public string VehicleName { get; set; }
 
     /// <summary>
+    /// Setup sheet of the vehicle and feeling of the driver, when the recorder or the user noted it.
+    /// </summary>
+    public VehicleSetup? Setup { get; set; }
+
+    /// <summary>
+    /// Free notes of the driver or the team about the session (conditions, changes, feeling).
+    /// </summary>
+    public string? Notes { get; set; }
+
+    /// <summary>
     /// Synchronization offset relative to the reference video timeline.
     /// This value is added to telemetry timestamps to align them with the video.
     /// Example: if the telemetry starts 2.5 seconds after the video,

@@ -2,7 +2,8 @@
 
 The LapViz format (`.lvz`) stores a motorsport session recorded by a data logger, a lap timer or a phone:
 the samples of its channels (GPS position, speed, RPM, temperatures, accelerations...), the laps and sectors
-measured by one or several timing sources, and a description of the session (driver, vehicle, device, circuit).
+measured by one or several timing sources, and a description of the session (driver, vehicle, device, circuit,
+setup of the vehicle, notes).
 
 It is an **open format**: anyone may read and write it, without fee or permission. The reference implementation
 is the open source [LapViz.Telemetry](https://github.com/lapviz/lapviz.telemetry) library (MIT license):
@@ -48,7 +49,13 @@ members; writers SHOULD omit the members that have no value rather than write `n
     "circuit": { "code": "genk", "name": "Karting Genk", "countryCode": "BE" },
     "description": "Free practice, new tyres",
     "sourceFile": "Alice_Genk_a_0708.xrk",
-    "properties": { "weather": "dry", "tyres": "MG Red" }
+    "setup": {
+      "tyres": "MG Red", "tyreCondition": "new", "tyreLaps": 0,
+      "pressureFront": 0.65, "pressureRear": 0.70, "gearingFront": 11, "gearingRear": 80,
+      "chassis": "Medium axle, rear width 1390 mm", "feeling": 4
+    },
+    "notes": "Oversteer out of turn 3",
+    "properties": { "weather": "dry" }
   },
   "channels": [
     { "name": "Latitude", "unit": "deg", "type": "float64" },
@@ -92,7 +99,30 @@ members; writers SHOULD omit the members that have no value rather than write `n
 | `circuit` | object | no | Circuit: `code` (short identifier, e.g. the LapViz circuit code), `name`, `countryCode` (ISO 3166-1 alpha-2). |
 | `description` | string | no | Free text. |
 | `sourceFile` | string | no | Name of the file the session was converted from. |
+| `setup` | object | no | Setup of the vehicle and feeling of the driver (2.1.1). |
+| `notes` | string | no | Free notes of the driver or the team: conditions, changes, feeling. Line ends allowed. |
 | `properties` | object | no | Free metadata: string values only. |
+
+#### 2.1.1 Setup
+
+The setup sheet of the session, as known when the file was written (karting first, every member optional). Writers
+SHOULD omit `setup` when it has no member. Readers MUST ignore a member of the wrong type or out of its range, and
+the members they do not know.
+
+| Member | Type | Description |
+|---|---|---|
+| `tyres` | string | Tyres: make, compound (`"MG Red"`). |
+| `tyreCondition` | string | State of the tyres at the start of the session: `"new"`, `"scrubbed"` (heated once for a few laps), `"used"` or `"worn"`. Readers SHOULD compare it case insensitively. |
+| `tyreLaps` | integer | Laps already driven on the set of tyres at the start of the session, `0` or more. |
+| `pressureFront`, `pressureRear` | number | Cold pressures of the front and rear tyres, in bar. |
+| `gearingFront`, `gearingRear` | integer | Sprockets, number of teeth: front (pinion) and rear (crown). |
+| `carburation` | string | Carburation settings (jets, needle...). |
+| `chassis` | string | Chassis settings: axle, track width, ride height, stiffness... |
+| `feeling` | integer | Feeling of the driver with this setup, from `1` (bad) to `5` (perfect). |
+
+A setup that changes after the session (edited in an application) does not require to rewrite the file: the
+file keeps the setup known when it was written, an application MAY keep the current one elsewhere and write it
+when it exports the session.
 
 ### 2.2 Channels
 
