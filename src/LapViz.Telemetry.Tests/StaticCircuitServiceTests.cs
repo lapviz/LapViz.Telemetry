@@ -46,6 +46,19 @@ public class StaticCircuitServiceTests
         }
 
         [Fact]
+        public void BuiltInCircuits_AreCenteredInsideTheirBox_NotOnItsCorner()
+        {
+            // The centers used to be the north-west corner of the box (lapviz.com data, fixed in October 2026)
+            var onCorner = new StaticCircuitService().InitializeCircuits()
+                .Where(c => c.Center != null && c.BoundingBox != null
+                    && (c.BoundingBox.Start.Latitude != c.BoundingBox.End.Latitude || c.BoundingBox.Start.Longitude != c.BoundingBox.End.Longitude)
+                    && c.Center.Latitude == c.BoundingBox.Start.Latitude && c.Center.Longitude == c.BoundingBox.Start.Longitude)
+                .Select(c => c.Code)
+                .ToList();
+            Assert.Empty(onCorner);
+        }
+
+        [Fact]
         public void SingleCircuit_Null_Throws()
         {
             Assert.Throws<ArgumentNullException>(() => new StaticCircuitService((CircuitConfiguration)null));
