@@ -11,7 +11,7 @@ namespace LapViz.Telemetry.Tests.IO;
 /// </summary>
 public class LapVizExamplesTests
 {
-    private static readonly DateTimeOffset Start = new(2026, 9, 12, 10, 0, 0, TimeSpan.FromHours(2));
+    private static readonly DateTimeOffset Start = new DateTimeOffset(2026, 9, 12, 10, 0, 0, TimeSpan.FromHours(2));
 
     // A fictitious oval of 1 km, 10 Hz: out lap, two timed laps (61.240 s and 60.115 s), an incomplete in lap
     private static readonly double[] LapTimes = { 61.240, 60.115 };
