@@ -11,7 +11,7 @@ public class EmbeddedResourcesTests
     {
         var circuits = new StaticCircuitService().InitializeCircuits();
 
-        Assert.Equal(189, circuits.Count);
+        Assert.Equal(191, circuits.Count);
         Assert.All(circuits, c =>
         {
             Assert.False(string.IsNullOrEmpty(c.Code));
