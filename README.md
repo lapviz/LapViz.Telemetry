@@ -32,8 +32,9 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
 * 📦 **Open file format**  
   The LapViz format (`.lvz`) stores a session: full resolution samples with their units, laps and sectors of
   several timing sources, driver, vehicle, device, circuit, setup sheet and notes. It is open and documented in
-  [docs/lapviz-format.md](docs/lapviz-format.md); `LapVizFile` reads and writes it, and the readers of the other
-  formats convert to it (`LapVizFile.FromDeviceSessionData`).
+  [docs/lapviz-format.md](docs/lapviz-format.md), with a [JSON Schema](docs/lapviz-format.schema.json) of its manifest,
+  [example files](docs/examples) and a [reader in plain Python](tools/python/lvz.py); `LapVizFile` reads and writes it,
+  and the readers of the other formats convert to it (`LapVizFile.FromDeviceSessionData`).
 
 * 🌐 **Open live timing client**  
   Built-in SignalR client for [OpenLiveTiming.com](https://openlivetiming.com), serving as both a **ready-to-use client** and **reference integration** for laptimer apps or timekeeping systems. We also plan to release our own iOS & Android Laptimer (primarily used for tests) as open source, to encourage integration with existing laptimers, whether hardware-based or app-based.
