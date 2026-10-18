@@ -233,10 +233,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
             {
                 var entry = archive.Entries.FirstOrDefault()
                             ?? throw new InvalidOperationException("Empty archive.");
-                var ms = new MemoryStream();
-                using (var es = entry.Open()) es.CopyTo(ms);
-                ms.Position = 0;
-                return ms;
+                return new MemoryStream(ZipLimits.ReadAll(entry));
             }
         }
 

@@ -168,13 +168,14 @@ public sealed partial class LapVizFile
         using (var zip = new ZipArchive(Seekable(stream), ZipArchiveMode.Read, leaveOpen: true))
         {
             var manifestEntry = zip.GetEntry(ManifestEntry) ?? throw new InvalidDataException("Not a LapViz file: no " + ManifestEntry);
-            byte[] manifest = ReadAll(manifestEntry);
+            byte[] manifest = ZipLimits.ReadAll(manifestEntry, MaxManifestBytes);
             var file = ReadManifest(manifest, out var samples);
 
             if (samples != null)
             {
                 var entry = zip.GetEntry(samples.File) ?? throw new InvalidDataException("Missing samples entry: " + samples.File);
-                var data = ReadAll(entry);
+                // Binary samples have an exact size: nothing more is decompressed (ZipLimits for the CSV ones)
+                var data = ZipLimits.ReadAll(entry, samples.Encoding == LapVizSampleEncoding.Binary ? file.BinarySamplesLength(samples.Count) : (long?)null);
                 if (samples.Encoding == LapVizSampleEncoding.Binary)
                     file.ReadBinarySamples(data, samples.Count, samples.ByteShuffle);
                 else
@@ -270,15 +271,11 @@ public sealed partial class LapVizFile
         return copy;
     }
 
-    private static byte[] ReadAll(ZipArchiveEntry entry)
-    {
-        using (var input = entry.Open())
-        using (var buffer = new MemoryStream())
-        {
-            input.CopyTo(buffer);
-            return buffer.ToArray();
-        }
-    }
+    /// <summary>Largest manifest read: it holds the metadata and the laps, never the samples.</summary>
+    private const long MaxManifestBytes = 64L * 1024 * 1024;
+
+    private long BinarySamplesLength(int count) =>
+        count < 0 ? 0 : (long)count * (sizeof(long) + _channels.Sum(x => x.Type == LapVizValueType.Float32 ? sizeof(float) : sizeof(double)));
 
     // Binary samples (section 3 of the specification)
     private void WriteBinarySamples(Stream stream, bool shuffle)
