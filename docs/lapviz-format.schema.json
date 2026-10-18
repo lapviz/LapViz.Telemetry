@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/lapviz/LapViz.Telemetry/main/docs/lapviz-format.schema.json",
+  "title": "LapViz telemetry format, version 2: manifest (lapviz.json)",
+  "description": "The manifest of a LapViz file (.lvz). Specification: https://github.com/lapviz/LapViz.Telemetry/blob/main/docs/lapviz-format.md. Unknown members are allowed: readers ignore them.",
+  "type": "object",
+  "required": ["format", "version", "session", "channels"],
+  "properties": {
+    "format": { "const": "lapviz" },
+    "version": { "const": 2, "description": "Major version of the specification. A reader refuses a version it does not support." },
+    "generator": {
+      "type": "object",
+      "description": "Software that wrote the file.",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "session": { "$ref": "#/$defs/session" },
+    "channels": {
+      "type": "array",
+      "description": "The channels of the samples, in the order of the columns.",
+      "items": { "$ref": "#/$defs/channel" }
+    },
+    "samples": { "$ref": "#/$defs/samples" },
+    "timing": {
+      "type": "array",
+      "description": "Timing sources and their laps; readers prefer the first source with device true.",
+      "items": { "$ref": "#/$defs/timingSource" }
+    }
+  },
+  "$defs": {
+    "session": {
+      "type": "object",
+      "required": ["start"],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "Time origin of the samples and the laps: ISO 8601 with an offset."
+        },
+        "driver": { "type": "string" },
+        "vehicle": { "type": "string" },
+        "device": {
+          "type": "object",
+          "properties": {
+            "brand": { "type": "string" },
+            "model": { "type": "string" },
+            "serial": { "type": "string" },
+            "firmware": { "type": "string" }
+          }
+        },
+        "circuit": { "$ref": "#/$defs/circuit" },
+        "description": { "type": "string" },
+        "sourceFile": { "type": "string" },
+        "setup": { "$ref": "#/$defs/setup" },
+        "notes": { "type": "string" },
+        "properties": {
+          "type": "object",
+          "description": "Free metadata, string values only.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "circuit": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "Short identifier, e.g. the LapViz circuit code." },
+        "name": { "type": "string" },
+        "countryCode": { "type": "string", "pattern": "^[A-Za-z]{2}$" }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "description": "Setup of the vehicle and feeling of the driver. Readers ignore a member of the wrong type or out of its range.",
+      "properties": {
+        "tyres": { "type": "string" },
+        "tyreCondition": { "type": "string", "description": "new, scrubbed, used or worn (case insensitive)." },
+        "tyreLaps": { "type": "integer", "minimum": 0 },
+        "pressureFront": { "type": "number", "description": "Cold pressure, bar." },
+        "pressureRear": { "type": "number", "description": "Cold pressure, bar." },
+        "gearingFront": { "type": "integer", "minimum": 1, "description": "Pinion, teeth." },
+        "gearingRear": { "type": "integer", "minimum": 1, "description": "Crown, teeth." },
+        "carburation": { "type": "string" },
+        "chassis": { "type": "string" },
+        "feeling": { "type": "integer", "minimum": 1, "maximum": 5 }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Unique in the file, case insensitive." },
+        "unit": { "type": "string" },
+        "type": { "enum": ["float32", "float64"], "default": "float64" },
+        "description": { "type": "string" }
+      }
+    },
+    "samples": {
+      "type": "object",
+      "required": ["file", "encoding"],
+      "properties": {
+        "file": { "enum": ["samples.bin", "samples.csv"] },
+        "encoding": { "enum": ["binary", "csv"] },
+        "count": { "type": "integer", "minimum": 0 },
+        "byteShuffle": { "type": "boolean", "default": false }
+      },
+      "if": { "properties": { "encoding": { "const": "binary" } } },
+      "then": { "required": ["count"], "properties": { "file": { "const": "samples.bin" } } },
+      "else": { "properties": { "file": { "const": "samples.csv" } } }
+    },
+    "timingSource": {
+      "type": "object",
+      "required": ["source", "laps"],
+      "properties": {
+        "source": { "type": "string" },
+        "device": { "type": "boolean", "default": false },
+        "circuit": { "$ref": "#/$defs/circuit" },
+        "laps": { "type": "array", "items": { "$ref": "#/$defs/lap" } }
+      }
+    },
+    "lap": {
+      "type": "object",
+      "required": ["number", "start"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 0, "description": "0 is the out lap." },
+        "start": { "type": "number", "description": "Seconds from session.start to the crossing that started the lap." },
+        "duration": { "type": "number", "exclusiveMinimum": 0, "description": "Lap time in seconds; absent for an incomplete lap." },
+        "sectors": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 } }
+      }
+    }
+  }
+}

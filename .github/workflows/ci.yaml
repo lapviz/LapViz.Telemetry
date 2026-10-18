@@ -36,6 +36,14 @@ jobs:
           dotnet tool restore
           dotnet cake
 
+      # The specification kit of the LapViz format: examples, schema and the Python reference reader agree
+      - name: Format specification
+        shell: bash
+        run: |
+          python3 -m pip install --quiet jsonschema
+          python3 tools/python/check_examples.py
+          python3 tools/python/lvz.py docs/examples/*.lvz
+
       - name: Upload Coverage
         if: always()
         uses: actions/upload-artifact@v4

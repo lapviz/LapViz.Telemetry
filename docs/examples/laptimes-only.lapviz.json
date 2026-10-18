@@ -1,0 +1,79 @@
+{
+  "format": "lapviz",
+  "version": 2,
+  "generator": {
+    "name": "LapViz.Telemetry examples",
+    "version": "2"
+  },
+  "session": {
+    "start": "2026-09-12T10:00:00.0000000\u002B02:00",
+    "driver": "Alex Example",
+    "vehicle": "Kart, 125 cc",
+    "device": {
+      "brand": "LapViz",
+      "model": "Example logger",
+      "serial": "0001"
+    },
+    "circuit": {
+      "code": "example-oval",
+      "name": "Example oval (fictitious)",
+      "countryCode": "BE"
+    },
+    "description": "Example file of the LapViz format specification",
+    "setup": {
+      "tyres": "Slick",
+      "tyreCondition": "scrubbed",
+      "tyreLaps": 12,
+      "pressureFront": 0.7,
+      "pressureRear": 0.75,
+      "gearingFront": 11,
+      "gearingRear": 78,
+      "feeling": 4
+    },
+    "notes": "Generated: the positions draw an oval, the speed and the RPM follow it.",
+    "properties": {
+      "weather": "dry"
+    }
+  },
+  "channels": [],
+  "timing": [
+    {
+      "source": "LapViz",
+      "device": true,
+      "circuit": {
+        "code": "example-oval"
+      },
+      "laps": [
+        {
+          "number": 0,
+          "start": 0,
+          "duration": 18
+        },
+        {
+          "number": 1,
+          "start": 18,
+          "duration": 61.24,
+          "sectors": [
+            20.413,
+            20.413,
+            20.414
+          ]
+        },
+        {
+          "number": 2,
+          "start": 79.24,
+          "duration": 60.115,
+          "sectors": [
+            20.038,
+            20.038,
+            20.039
+          ]
+        },
+        {
+          "number": 3,
+          "start": 139.355
+        }
+      ]
+    }
+  ]
+}
