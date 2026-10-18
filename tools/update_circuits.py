@@ -6,7 +6,8 @@
 Rules:
 - every circuit of lapviz.com with usable coordinates, with its id, name, location, country and weather link;
 - the timing lines of lapviz.com, unless they are inconsistent (a line longer than 150 m or outside the box):
-  then the lines already in the file are kept, and the circuit is reported;
+  then the lines already in the file are kept, and the circuit is reported; a new circuit with such lines or an
+  empty box is not added;
 - "useDirection" stays true: lapviz.com stores false everywhere, and the built-in list always detected the
   crossings toward the apex;
 - circuits already in the file keep their order, new ones are added at the end.
@@ -99,8 +100,9 @@ def main():
         if issues and old:
             report.append(f"{code}: lapviz.com {', '.join(issues)}, lines of the file kept")
             box, segments = old["box"], old["segments"]
-        elif issues:
-            report.append(f"{code}: lapviz.com {', '.join(issues)}, added anyway")
+        elif issues:  # A lap timer could not use it
+            report.append(f"{code}: lapviz.com {', '.join(issues)}, not added")
+            continue
         elif old and old["segments"] != segments:
             report.append(f"{code}: timing lines updated")
 

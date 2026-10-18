@@ -19,6 +19,17 @@ Design goals:
 
 The key words "MUST", "SHOULD" and "MAY" are to be interpreted as described in RFC 2119.
 
+To implement the format:
+
+| | |
+|---|---|
+| [`lapviz-format.schema.json`](lapviz-format.schema.json) | JSON Schema (2020-12) of the manifest: validate the `lapviz.json` you write. |
+| [`examples/`](examples) | Example files: `binary.lvz` (byte-shuffled binary samples), `csv.lvz` (the same samples in CSV), `laptimes-only.lvz` (laps without samples), each with its manifest next to it. |
+| [`tools/python/lvz.py`](../tools/python/lvz.py) | A reader in plain Python (no dependency, about 150 lines), written from this document only: a second implementation to compare yours with. |
+
+The CI checks that they agree: the examples are read by the .NET library and by the Python reader, the binary and
+CSV examples hold the same samples, and every manifest, the one below included, is valid against the schema.
+
 ## 1. Archive
 
 A LapViz file is a ZIP archive (PKWARE APPNOTE), with the `.lvz` extension. Its entries are either *stored* or
