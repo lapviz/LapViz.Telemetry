@@ -53,6 +53,18 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
             throw new InvalidOperationException("No file loaded.");
 
         var filesToParse = GetFilesToParse();
+        try
+        {
+            return ReadChannelHeader(filesToParse);
+        }
+        finally
+        {
+            DeleteExtracted(filesToParse); // The files extracted from a ZIP used to stay in the temporary folder
+        }
+    }
+
+    private IList<string> ReadChannelHeader(IList<string> filesToParse)
+    {
         if (filesToParse == null || filesToParse.Count == 0)
             throw new FileNotFoundException("No input files matched.");
 
@@ -216,7 +228,20 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
             }
         }
 
-        // Clean temporary directory if we extracted a ZIP
+        DeleteExtracted(filesToParse);
+        return new List<DeviceSessionData> { driverSessionData };
+    }
+
+    /// <summary>
+    /// Expand a ZIP into a temp folder and return matching files, or return the single filename.
+    /// Filters include and exclude patterns when scanning expanded folder.
+    /// </summary>
+    /// <summary>Deletes the temporary folder of the files extracted from a ZIP (nothing for a plain file).</summary>
+    private void DeleteExtracted(IList<string>? filesToParse)
+    {
+        if (filesToParse == null || filesToParse.Count == 0)
+            return;
+
         var originDir = Path.GetDirectoryName(_filename);
         var parsedDir = Path.GetDirectoryName(filesToParse[0]);
         if (!string.Equals(originDir, parsedDir, StringComparison.OrdinalIgnoreCase)
@@ -227,25 +252,30 @@ public class DelimitedDataReader : FileSystemTelemetryDataReader, ITelemetryData
             {
                 Directory.Delete(parsedDir, true);
             }
-            catch
+            catch (IOException)
             {
-                // ignore cleanup errors
+                // Cleanup errors are ignored
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
         }
-
-        return new List<DeviceSessionData> { driverSessionData };
     }
 
-    /// <summary>
-    /// Expand a ZIP into a temp folder and return matching files, or return the single filename.
-    /// Filters include and exclude patterns when scanning expanded folder.
-    /// </summary>
     private IList<string> GetFilesToParse()
     {
         if (string.Equals(Path.GetExtension(_filename), ".ZIP", StringComparison.OrdinalIgnoreCase))
         {
             var temporaryDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            ZipFile.ExtractToDirectory(_filename, temporaryDirectory);
+            try
+            {
+                ZipLimits.ExtractFlat(_filename, temporaryDirectory); // Bounded: a ZIP bomb filled the disk
+            }
+            catch
+            {
+                Directory.Delete(temporaryDirectory, true);
+                throw;
+            }
 
             var matchedFiles = Directory
                 .GetFiles(temporaryDirectory, _config.FileNameInclude)
