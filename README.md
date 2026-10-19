@@ -65,7 +65,7 @@ LapViz.Telemetry is more than just a library — it’s the foundation for build
 We encourage developers, track owners, and timekeepers worldwide to integrate with [OpenLiveTiming.com](https://openlivetiming.com) and help shape the future of accessible timing solutions.
 
 - 🌐 [LapViz for developers](https://lapviz.com/developers) and [the LapViz apps](https://lapviz.com/apps)
-- 💬 [Join our Discord Community](https://discord.gg/GRfnhBFr)
+- 💬 [Join our Discord Community](https://discord.gg/S6pnw2Dpa2)
 - 🤝 Contribute by reading our [Contributing Guidelines](CONTRIBUTING.md)
 
 ---

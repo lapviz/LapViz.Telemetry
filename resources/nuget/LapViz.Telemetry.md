@@ -19,6 +19,6 @@ It provides a flexible and efficient foundation for building timing systems, liv
 
 * 📖 [LapViz Platform](https://lapviz.com)
 * 🌐 [LapViz GitHub Repository](https://github.com/lapviz/lapviz.telemetry)
-* 💬 [Join our Discord Community](https://discord.gg/GRfnhBFr)
+* 💬 [Join our Discord Community](https://discord.gg/S6pnw2Dpa2)
 
 **Tags:** telemetry, motorsport, racing, lap timing, sector, analytics, realtime, lapviz

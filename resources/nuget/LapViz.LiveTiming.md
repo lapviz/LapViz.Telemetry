@@ -18,6 +18,6 @@ It offers a built-in WebSocket (SignalR) client for connecting to live sessions,
 
 * 📖 [LapViz Platform](https://lapviz.com)
 * 🌐 [LapViz GitHub Repository](https://github.com/lapviz/lapviz.telemetry)
-* 💬 [Join our Discord Community](https://discord.gg/GRfnhBFr)
+* 💬 [Join our Discord Community](https://discord.gg/S6pnw2Dpa2)
 
 **Tags:** openlivetiming, motorsport, racing, lap timing, telemetry, realtime, signalr, lapviz
