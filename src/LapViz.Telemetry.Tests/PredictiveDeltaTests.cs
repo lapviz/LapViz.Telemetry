@@ -200,4 +200,94 @@ public class PredictiveDeltaTests
         Assert.False(delta.HasReference);
         Assert.Null(delta.Delta);
     }
+
+    /// <summary>The fixes of the recorded session and a lap timer on its circuit.</summary>
+    private static async Task<(List<GeoTelemetryData> Fixes, LapTimerService Timer)> RecordedSession()
+    {
+        var parser = new DelimitedDataReader(new DelimitedDataReaderConfiguration
+        {
+            ChannelsSignature = "\"Time",
+            Delimiter = ',',
+            TelemetryDevice = "Test"
+        });
+        parser.Load(Path.Combine(AppContext.BaseDirectory, "runs", "MariembourgFreeTests.csv"));
+        var fixes = parser.GetSessionData().First().TelemetryData.Cast<GeoTelemetryData>().ToList();
+        var circuit = await new StaticCircuitService().Detect(fixes[0]);
+        var timer = new LapTimerService(NullLogger<LapTimerService>.Instance, new LapTimerConfig { AutoStartDetection = true });
+        timer.SetCircuit(circuit);
+        return (fixes, timer);
+    }
+
+    /// <summary>Replays the session through a delta; <paramref name="onFix"/> after each fix.</summary>
+    private static async Task<PredictiveDelta> Replay(PredictiveDelta delta, Action<PredictiveDelta, int>? onFix = null)
+    {
+        var (fixes, timer) = await RecordedSession();
+        var laps = 0;
+        timer.EventAdded += (_, e) =>
+        {
+            delta.OnLapEvent(e);
+            laps += e.Type == SessionEventType.Lap ? 1 : 0;
+        };
+        foreach (var fix in fixes)
+        {
+            timer.AddGeolocation(fix);
+            delta.OnFix(fix, fix.Timestamp);
+            onFix?.Invoke(delta, laps);
+        }
+
+        return delta;
+    }
+
+    [Fact]
+    public async Task A_Reference_From_Another_Session_Gives_A_Delta_From_The_First_Lap()
+    {
+        var ghost = (await Replay(new PredictiveDelta())).Reference;
+        Assert.NotNull(ghost);
+        Assert.True(ghost!.Points.Count > 100);
+        Assert.Equal(ghost.LapTime.TotalMilliseconds, ghost.Points[^1].TimeMs, 0);
+
+        var withGhost = new PredictiveDelta();
+        withGhost.SetReference(ghost);
+        var firstLapDeltas = 0;
+        await Replay(withGhost, (d, laps) => firstLapDeltas += laps == 1 && d.Delta.HasValue ? 1 : 0);
+
+        Assert.True(firstLapDeltas > 100, "A delta during the first lap, against the ghost");
+        Assert.Equal(ghost.LapTime, withGhost.ReferenceLapTime); // Its own laps are not faster than its best
+    }
+
+    [Fact]
+    public async Task A_Slower_Ghost_Is_Replaced_By_A_Faster_Lap_Unless_Kept()
+    {
+        var ghost = (await Replay(new PredictiveDelta())).Reference!;
+        var slower = new DeltaReference
+        {
+            LapTime = ghost.LapTime + TimeSpan.FromSeconds(10),
+            Points = ghost.Points.Select(p => new DeltaReferencePoint { Latitude = p.Latitude, Longitude = p.Longitude, TimeMs = p.TimeMs * 1.2 }).ToList(),
+        };
+
+        var replaced = new PredictiveDelta();
+        replaced.SetReference(slower);
+        await Replay(replaced);
+        Assert.Equal(ghost.LapTime, replaced.ReferenceLapTime);
+
+        var kept = new PredictiveDelta();
+        kept.SetReference(slower, keep: true);
+        await Replay(kept);
+        Assert.Equal(slower.LapTime, kept.ReferenceLapTime);
+
+        kept.Reset();
+        Assert.False(kept.HasReference);
+        Assert.Null(kept.Reference);
+    }
+
+    [Fact]
+    public void A_Reference_Needs_Two_Points_And_A_Lap_Time()
+    {
+        var delta = new PredictiveDelta();
+        Assert.Throws<ArgumentException>(() => delta.SetReference(new DeltaReference { LapTime = TimeSpan.FromSeconds(60) }));
+        Assert.Throws<ArgumentException>(() => delta.SetReference(new DeltaReference
+        {
+            Points = new[] { new DeltaReferencePoint(), new DeltaReferencePoint { TimeMs = 1 } },
+        }));
+    }
 }
