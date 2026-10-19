@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using LapViz.Telemetry.Domain;
 
 namespace LapViz.Telemetry.Services;
@@ -24,6 +25,11 @@ namespace LapViz.Telemetry.Services;
 /// fitting the trace capacity. Lap times are those of the start/finish crossings, so the
 /// reference lap time is the best lap time of <see cref="LapTimerService"/>.
 /// </para>
+/// <para>
+/// The reference can also come from another session (<see cref="SetReference"/>, a "ghost"): the
+/// best lap of the driver on the circuit, or a friend's lap, read from <see cref="Reference"/> of
+/// a <see cref="PredictiveDelta"/> that replayed that session.
+/// </para>
 /// </remarks>
 public sealed class PredictiveDelta
 {
@@ -47,6 +53,7 @@ public sealed class PredictiveDelta
     private List<TracePoint> _best = new List<TracePoint>();
     private List<TracePoint> _current = new List<TracePoint>();
     private TimeSpan _bestLapTime;
+    private bool _keepReference;
 
     private bool _inLap;
     private bool _currentValid;
@@ -73,6 +80,35 @@ public sealed class PredictiveDelta
     /// <summary>Time of the reference lap (zero without reference).</summary>
     public TimeSpan ReferenceLapTime => _bestLapTime;
 
+    /// <summary>
+    /// The reference lap (its positions and the time since the start of the lap at each one), to
+    /// keep or to give to another <see cref="PredictiveDelta"/>; null without reference.
+    /// </summary>
+    public DeltaReference Reference => HasReference
+        ? new DeltaReference
+        {
+            LapTime = _bestLapTime,
+            Points = _best.Select(x => new DeltaReferencePoint { Latitude = x.Latitude, Longitude = x.Longitude, TimeMs = x.TimeMs }).ToList(),
+        }
+        : null;
+
+    /// <summary>
+    /// Compares the laps with <paramref name="reference"/> (a lap of another session) from the next
+    /// fix. A faster complete lap of this session replaces it, unless <paramref name="keep"/> (a
+    /// friend's lap stays the reference). Forgotten by <see cref="Reset"/>.
+    /// </summary>
+    public void SetReference(DeltaReference reference, bool keep = false)
+    {
+        if (reference?.Points == null || reference.Points.Count < 2 || reference.LapTime <= TimeSpan.Zero)
+            throw new ArgumentException("A reference needs at least two points and a lap time.", nameof(reference));
+
+        _best = reference.Points.Take(_capacity).Select(x => new TracePoint(x.Latitude, x.Longitude, x.TimeMs)).ToList();
+        _bestLapTime = reference.LapTime;
+        _keepReference = keep;
+        _matchIndex = 0;
+        Delta = null;
+    }
+
     /// <summary>Delta at the last fix (negative = ahead of the reference), null if it could not be computed.</summary>
     public TimeSpan? Delta { get; private set; }
 
@@ -83,6 +119,7 @@ public sealed class PredictiveDelta
         _current.Clear();
         _best.Clear();
         _bestLapTime = TimeSpan.Zero;
+        _keepReference = false;
         Delta = null;
     }
 
@@ -100,7 +137,7 @@ public sealed class PredictiveDelta
             Append(position, time);
 
             var lapTime = time - _lapStart;
-            if (_currentValid && (_best.Count == 0 || lapTime < _bestLapTime))
+            if (_currentValid && !_keepReference && (_best.Count == 0 || lapTime < _bestLapTime))
             {
                 var swap = _best;
                 _best = _current;
@@ -269,4 +306,25 @@ public sealed class PredictiveDelta
         // Time since the start of the lap
         public double TimeMs { get; }
     }
+}
+
+/// <summary>A reference lap of <see cref="PredictiveDelta"/>: its time and its trace.</summary>
+public sealed class DeltaReference
+{
+    /// <summary>Time of the lap, start/finish to start/finish.</summary>
+    public TimeSpan LapTime { get; set; }
+
+    /// <summary>The trace, from the start/finish crossing to the next one.</summary>
+    public IReadOnlyList<DeltaReferencePoint> Points { get; set; } = new List<DeltaReferencePoint>();
+}
+
+/// <summary>A point of a reference lap.</summary>
+public sealed class DeltaReferencePoint
+{
+    public double Latitude { get; set; }
+
+    public double Longitude { get; set; }
+
+    /// <summary>Milliseconds since the start of the lap.</summary>
+    public double TimeMs { get; set; }
 }
