@@ -10,7 +10,10 @@ Rules:
   empty box is not added;
 - "useDirection" stays true: lapviz.com stores false everywhere, and the built-in list always detected the
   crossings toward the apex;
-- circuits already in the file keep their order, new ones are added at the end.
+- circuits already in the file keep their order, new ones are added at the end;
+- the provisional circuits are left out: lapviz.com found them in the GPS of files without laps and nobody checked
+  them yet. The import of lapviz.com uses the built-in circuits first: their unchecked lines would stay in the
+  package after a correction on the site.
 """
 
 import json
@@ -47,6 +50,7 @@ def fetch():
         for circuit in get(f"{API}/search?text={text}&p=1&s=1000")["circuits"]:
             circuits[circuit["id"]] = circuit
 
+    provisional = {c["id"] for c in circuits.values() if c.get("provisional")}
     configurations, covered, failed = {}, set(), []
     for circuit in circuits.values():
         if circuit["id"] in covered:
@@ -63,7 +67,8 @@ def fetch():
                 found = []
                 failed.append(circuit["id"])
         for configuration in found:
-            configurations[configuration["id"]] = configuration
+            if configuration["id"] not in provisional:
+                configurations[configuration["id"]] = configuration
         covered.add(circuit["id"])
         if radius == 200:
             covered.update(x["id"] for x in circuits.values() if distance(center, (x["latitude"], x["longitude"])) < 190_000)
