@@ -35,6 +35,9 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
   checkered flag by laps, time or hand, penalties, classification by best lap or as a race, and the race model of
   OpenLiveTiming (`RaceSessionState`). Passings and commands form a journal: the result is the same whatever their
   order of arrival.
+  `TimingJournal` writes and replays them (NDJSON), `PassingSimulator` generates the passings of a field (missed and
+  duplicated passings, pit stops) and `LapViz.Telemetry.Timing.P3` reads and writes the MYLAPS P3 decoder protocol
+  (framing, escaping, CRC, passing and status records; not yet checked against a real decoder).
 
 * 📦 **Open file format**  
   The LapViz format (`.lvz`) stores a session: full resolution samples with their units, laps and sectors of
