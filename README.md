@@ -29,6 +29,13 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
 * ⏱ **Timing utilities**  
   Work with laps, sectors, positions, timestamps, and live updates.
 
+* 🏁 **Timing from passings**  
+  `PassingTimingSession` times a session from the passings of transponders (decoder loops), LapViz devices
+  or line crossings: laps and sectors, minimum lap time, duplicates and missed loops, start signal or first crossing,
+  checkered flag by laps, time or hand, penalties, classification by best lap or as a race, and the race model of
+  OpenLiveTiming (`RaceSessionState`). Passings and commands form a journal: the result is the same whatever their
+  order of arrival.
+
 * 📦 **Open file format**  
   The LapViz format (`.lvz`) stores a session: full resolution samples with their units, laps and sectors of
   several timing sources, driver, vehicle, device, circuit, setup sheet and notes. It is open and documented in

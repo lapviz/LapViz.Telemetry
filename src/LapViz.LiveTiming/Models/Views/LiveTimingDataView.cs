@@ -348,13 +348,23 @@ public class LiveTimingDataView : INotifyPropertyChanged
                 .OrderBy(e => e.Time)
                 .FirstOrDefault();
 
-            var devicesOrdered = activeDevices
-                .Select(d => new { Device = d, BestLap = BestNonDeletedLap(d) })
-                .OrderBy(x => x.BestLap == null ? TimeSpan.MaxValue : x.BestLap.Time)
+            var isRace = type == LiveTimingDataRankingType.Race;
+            var candidates = activeDevices
+                .Select(d => new { Device = d, BestLap = BestNonDeletedLap(d), Laps = CompletedLapTimestamps(d) });
+
+            // Race: the most laps first, then who completed that lap first; otherwise by best lap
+            var devicesOrdered = (isRace
+                    ? candidates
+                        .OrderByDescending(x => x.Laps.Count)
+                        .ThenBy(x => x.Laps.Count == 0 ? DateTimeOffset.MaxValue : x.Laps[x.Laps.Count - 1])
+                    : candidates
+                        .OrderBy(x => x.BestLap == null ? TimeSpan.MaxValue : x.BestLap.Time))
                 .ToList();
 
             int index = 1;
             LiveTimingDataDeviceView previous = null;
+            IList<DateTimeOffset> leaderLaps = devicesOrdered.Count > 0 ? devicesOrdered[0].Laps : new List<DateTimeOffset>();
+            IList<DateTimeOffset>? previousLaps = null;
 
             foreach (var item in devicesOrdered)
             {
@@ -427,14 +437,29 @@ public class LiveTimingDataView : INotifyPropertyChanged
                 row.LastLap = new ColoredDeviceEventView(lastNonDeletedLap);
                 row.BestLap = new ColoredDeviceEventView(bestLap);
 
-                if (globalBestLap != null && bestLap != null)
-                    row.Gap = bestLap.Time - globalBestLap.Time;
-
-                if (previous != null)
+                if (isRace)
                 {
-                    var prevBestLap = BestNonDeletedLap(previous);
-                    if (bestLap != null && prevBestLap != null)
-                        row.Interval = bestLap.Time - prevBestLap.Time;
+                    if (index > 1)
+                    {
+                        RaceGap(item.Laps, leaderLaps, out var gap, out var gapLaps);
+                        row.Gap = gap;
+                        row.GapLaps = gapLaps;
+                        RaceGap(item.Laps, previousLaps, out var interval, out var intervalLaps);
+                        row.Interval = interval;
+                        row.IntervalLaps = intervalLaps;
+                    }
+                }
+                else
+                {
+                    if (globalBestLap != null && bestLap != null)
+                        row.Gap = bestLap.Time - globalBestLap.Time;
+
+                    if (previous != null)
+                    {
+                        var prevBestLap = BestNonDeletedLap(previous);
+                        if (bestLap != null && prevBestLap != null)
+                            row.Interval = bestLap.Time - prevBestLap.Time;
+                    }
                 }
 
                 if (dict != null)
@@ -458,6 +483,7 @@ public class LiveTimingDataView : INotifyPropertyChanged
                 newRankingTable.Rows.Add(row);
 
                 previous = device;
+                previousLaps = item.Laps;
                 index++;
             }
 
@@ -465,6 +491,43 @@ public class LiveTimingDataView : INotifyPropertyChanged
             newRankingTable.Duration = stopwatch.ElapsedMilliseconds;
             return newRankingTable;
         }
+    }
+
+    /// <summary>
+    /// When each lap of <paramref name="device"/> was completed, in order: laps with a time, not deleted, an event
+    /// received twice (same id) counted once.
+    /// </summary>
+    private static IList<DateTimeOffset> CompletedLapTimestamps(LiveTimingDataDeviceView device)
+    {
+        return device.Events
+            .Where(e => e.Type == LiveTimingDataDeviceEventType.Lap && e.Deleted == null && e.Time > TimeSpan.Zero)
+            .GroupBy(e => e.Id ?? e.Timestamp.ToString("O", CultureInfo.InvariantCulture))
+            .Select(g => g.Min(e => e.Timestamp))
+            .OrderBy(t => t)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Race gap of a device to a reference device ranked ahead: when the device completed its last lap, the laps
+    /// the reference had completed beyond it, else the time between their completions of that lap.
+    /// </summary>
+    private static void RaceGap(IList<DateTimeOffset> laps, IList<DateTimeOffset>? referenceLaps, out TimeSpan? time, out int lapsDown)
+    {
+        time = null;
+        lapsDown = 0;
+        if (laps.Count == 0 || referenceLaps == null || referenceLaps.Count == 0)
+            return;
+
+        var at = laps[laps.Count - 1];
+        var referenceLapsThen = referenceLaps.Count(t => t <= at);
+        if (referenceLapsThen > laps.Count)
+        {
+            lapsDown = referenceLapsThen - laps.Count;
+            return;
+        }
+
+        if (referenceLaps.Count >= laps.Count)
+            time = at - referenceLaps[laps.Count - 1];
     }
 
     public LiveTimingDataDeviceEventView BestLap { get; private set; }

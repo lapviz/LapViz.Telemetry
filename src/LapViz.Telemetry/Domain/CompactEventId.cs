@@ -90,6 +90,17 @@ public readonly struct CompactEventId : IEquatable<CompactEventId>, IComparable<
     }
 
     /// <summary>
+    /// A deterministic id: the milliseconds of <paramref name="timestamp"/> and the low 22 bits of
+    /// <paramref name="discriminator"/> instead of random bits. Computing the same event again (replaying
+    /// a journal of passings) gives the same id, so a receiver can deduplicate it.
+    /// </summary>
+    public static CompactEventId FromTimestamp(DateTimeOffset timestamp, int discriminator)
+    {
+        var ms = (long)(timestamp - Epoch).TotalMilliseconds;
+        return new CompactEventId((ms << RandomBits) | (long)(discriminator & RandomMask));
+    }
+
+    /// <summary>
     /// Reconstructs a <see cref="CompactEventId"/> from its raw 64-bit value.
     /// Use this when deserializing from storage or network (JSON long, binary, etc.).
     /// </summary>

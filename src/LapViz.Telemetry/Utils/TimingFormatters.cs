@@ -56,6 +56,29 @@ public static class TimingFormatters
     }
 
     /// <summary>
+    /// Formats a gap or an interval as OpenLiveTiming shows it, rounded to the millisecond.
+    /// Examples: "+12.345", "+1:23.456", "-0.250".
+    /// </summary>
+    public static string FormatGap(TimeSpan gap)
+    {
+        // Round to milliseconds before splitting, else 119.9996 s would give "+1:60.000"
+        var totalMs = (long)Math.Round(gap.TotalMilliseconds, MidpointRounding.AwayFromZero);
+        var sign = totalMs < 0 ? "-" : "+";
+        totalMs = Math.Abs(totalMs);
+
+        if (totalMs < 60_000)
+            return string.Format(CultureInfo.InvariantCulture, "{0}{1:F3}", sign, totalMs / 1000.0);
+
+        return string.Format(CultureInfo.InvariantCulture, "{0}{1}:{2:00.000}", sign, totalMs / 60_000, (totalMs % 60_000) / 1000.0);
+    }
+
+    /// <summary>
+    /// Formats a gap in laps as OpenLiveTiming shows it. Examples: "+1 Lap", "+3 Laps".
+    /// </summary>
+    public static string FormatLapsGap(int laps) =>
+        laps == 1 ? "+1 Lap" : string.Format(CultureInfo.InvariantCulture, "+{0} Laps", laps);
+
+    /// <summary>
     /// Formats a session elapsed time or countdown for display.
     /// Examples: "12:34", "1:23:45", null → ""
     /// </summary>
