@@ -147,6 +147,18 @@ public sealed class TimingJournalEntry
     [JsonPropertyName("minLap")]
     public double? MinLapSeconds { get; set; }
 
+    /// <summary>Session: maximum lap time in seconds (absent = none).</summary>
+    [JsonPropertyName("maxLap")]
+    public double? MaxLapSeconds { get; set; }
+
+    /// <summary>Session: minimum pit stop time in seconds (absent = none).</summary>
+    [JsonPropertyName("minPit")]
+    public double? MinPitStopSeconds { get; set; }
+
+    /// <summary>Session: false when the red flag does not stop the clock (absent = it stops it).</summary>
+    [JsonPropertyName("redStopsClock")]
+    public bool? RedFlagStopsClock { get; set; }
+
     /// <summary>Session: minimum time between two passings on a line, in seconds.</summary>
     [JsonPropertyName("minPass")]
     public double? MinPassingSeconds { get; set; }
@@ -200,6 +212,9 @@ public static class TimingJournal
             Laps = rules.Laps,
             MinLapSeconds = rules.MinLapTime.TotalSeconds,
             MinPassingSeconds = rules.MinPassingInterval.TotalSeconds,
+            MaxLapSeconds = rules.MaxLapTime > TimeSpan.Zero ? rules.MaxLapTime.TotalSeconds : null,
+            MinPitStopSeconds = rules.MinPitStopTime > TimeSpan.Zero ? rules.MinPitStopTime.TotalSeconds : null,
+            RedFlagStopsClock = rules.RedFlagStopsClock ? null : false,
         };
     }
 
@@ -278,6 +293,11 @@ public static class TimingJournal
             rules.MinLapTime = TimeSpan.FromSeconds(header.MinLapSeconds.Value);
         if (header.MinPassingSeconds.HasValue)
             rules.MinPassingInterval = TimeSpan.FromSeconds(header.MinPassingSeconds.Value);
+        if (header.MaxLapSeconds.HasValue)
+            rules.MaxLapTime = TimeSpan.FromSeconds(header.MaxLapSeconds.Value);
+        if (header.MinPitStopSeconds.HasValue)
+            rules.MinPitStopTime = TimeSpan.FromSeconds(header.MinPitStopSeconds.Value);
+        rules.RedFlagStopsClock = header.RedFlagStopsClock ?? true;
 
         return new PassingTimingSession(new TimingLineLayout(header.SectorLines ?? 1, header.PitInLine, header.PitOutLine), rules);
     }

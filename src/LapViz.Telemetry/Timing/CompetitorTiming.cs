@@ -45,6 +45,29 @@ public sealed class RejectedPassing
     public PassingRejection Reason { get; }
 }
 
+/// <summary>A pit stop: from the pit in line to the pit out line.</summary>
+public sealed class TimingPitStop
+{
+    internal TimingPitStop(DateTimeOffset inAt, DateTimeOffset outAt, TimeSpan shortfall)
+    {
+        InAt = inAt;
+        OutAt = outAt;
+        Shortfall = shortfall;
+    }
+
+    /// <summary>Pit in line passing.</summary>
+    public DateTimeOffset InAt { get; }
+
+    /// <summary>Pit out line passing.</summary>
+    public DateTimeOffset OutAt { get; }
+
+    /// <summary>Time in the pit lane.</summary>
+    public TimeSpan Duration => OutAt - InAt;
+
+    /// <summary>Time missing to the minimum pit stop time (zero when long enough), added as a penalty.</summary>
+    public TimeSpan Shortfall { get; }
+}
+
 /// <summary>
 /// The timing of one competitor in a <see cref="PassingTimingSession"/>, derived from its passings.
 /// Read-only for callers; recomputed by the session.
@@ -54,6 +77,7 @@ public sealed class CompetitorTiming
     private readonly List<DateTimeOffset> _lapCompletions = new List<DateTimeOffset>();
     private readonly List<RejectedPassing> _rejected = new List<RejectedPassing>();
     private readonly Dictionary<int, DateTimeOffset> _lastByLine = new Dictionary<int, DateTimeOffset>();
+    private readonly List<TimingPitStop> _pitStops = new List<TimingPitStop>();
 
     internal CompetitorTiming(TimingCompetitor competitor, int sectorCount)
     {
@@ -81,6 +105,20 @@ public sealed class CompetitorTiming
 
     /// <summary>Laps counted without time: a finish line passing was missed and deduced from the other lines.</summary>
     public int EstimatedLaps { get; internal set; }
+
+    /// <summary>
+    /// Laps counted without time because they overlap a red flag or exceed <see cref="TimingRules.MaxLapTime"/>.
+    /// </summary>
+    public int ExcludedLaps { get; internal set; }
+
+    /// <summary>Pit stops completed (pit in line, then pit out line), with the shortfall to the minimum pit stop time.</summary>
+    public IReadOnlyList<TimingPitStop> PitStops => _pitStops;
+
+    /// <summary>Time penalty of the pit stops shorter than <see cref="TimingRules.MinPitStopTime"/>.</summary>
+    public TimeSpan PitStopPenaltyTime { get; internal set; }
+
+    /// <summary>All time penalties: the operator's and the pit stops'.</summary>
+    public TimeSpan TotalPenaltyTime => PenaltyTime + PitStopPenaltyTime;
 
     /// <summary>When each lap was completed (index 0 = lap 1). An estimated lap has an estimated time.</summary>
     public IReadOnlyList<DateTimeOffset> LapCompletions => _lapCompletions;
@@ -124,7 +162,7 @@ public sealed class CompetitorTiming
     /// <summary>On the lap after the pit lane exit.</summary>
     public bool OnOutLap { get; internal set; }
 
-    /// <summary>Time penalty, added to the race time of the competitor.</summary>
+    /// <summary>Time penalty set by the operator, added to the race time of the competitor.</summary>
     public TimeSpan PenaltyTime { get; internal set; }
 
     /// <summary>Laps removed from the laps completed.</summary>
@@ -137,11 +175,11 @@ public sealed class CompetitorTiming
     public int ClassifiedLaps => Math.Max(0, Laps - PenaltyLaps);
 
     /// <summary>
-    /// When the competitor completed its last lap, the time penalty added; null without counted lap. With penalty
+    /// When the competitor completed its last lap, the time penalties added; null without counted lap. With penalty
     /// laps the competitor is classified on fewer laps but at the time of its last passing.
     /// </summary>
     public DateTimeOffset? ClassifiedLapAt =>
-        ClassifiedLaps > 0 ? _lapCompletions[_lapCompletions.Count - 1] + PenaltyTime : null;
+        ClassifiedLaps > 0 ? _lapCompletions[_lapCompletions.Count - 1] + TotalPenaltyTime : null;
 
     /// <summary>Passings that did not count.</summary>
     public IReadOnlyList<RejectedPassing> Rejected => _rejected;
@@ -173,8 +211,16 @@ public sealed class CompetitorTiming
 
     internal DateTimeOffset? LastFinishLineAt { get; set; }
 
-    /// <summary>When the competitor had <paramref name="laps"/> counted laps (1-based), the time penalty added.</summary>
-    internal DateTimeOffset ClassifiedCompletion(int laps) => _lapCompletions[laps - 1 + PenaltyLaps] + PenaltyTime;
+    internal DateTimeOffset? PitInAt { get; set; }
+
+    /// <summary>When the competitor had <paramref name="laps"/> counted laps (1-based), the time penalties added.</summary>
+    internal DateTimeOffset ClassifiedCompletion(int laps) => _lapCompletions[laps - 1 + PenaltyLaps] + TotalPenaltyTime;
+
+    internal void AddPitStop(TimingPitStop stop)
+    {
+        _pitStops.Add(stop);
+        PitStopPenaltyTime += stop.Shortfall;
+    }
 
     internal void AddLapCompletion(DateTimeOffset at) => _lapCompletions.Add(at);
 
@@ -201,6 +247,10 @@ public sealed class CompetitorTiming
         _lastByLine.Clear();
         Session = NewSession(Competitor);
         EstimatedLaps = 0;
+        ExcludedLaps = 0;
+        _pitStops.Clear();
+        PitStopPenaltyTime = TimeSpan.Zero;
+        PitInAt = null;
         LastLapTime = null;
         BestLapTime = null;
         BestLapAt = null;

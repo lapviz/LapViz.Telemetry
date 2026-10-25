@@ -58,6 +58,25 @@ public sealed class TimingRules
     /// </summary>
     public TimeSpan MinPassingInterval { get; set; } = TimeSpan.FromSeconds(2);
 
+    /// <summary>
+    /// A lap longer than this is counted without time: it is never a best lap (a stop on track, a pit lane without
+    /// pit lines). Zero = no maximum.
+    /// </summary>
+    public TimeSpan MaxLapTime { get; set; } = TimeSpan.Zero;
+
+    /// <summary>
+    /// A pit stop (from the pit in line to the pit out line) shorter than this gets the missing time as a time
+    /// penalty. Zero = no minimum. Needs both pit lines in the layout.
+    /// </summary>
+    public TimeSpan MinPitStopTime { get; set; } = TimeSpan.Zero;
+
+    /// <summary>
+    /// The red flag (suspension) stops the session clock until the next flag (restart): the duration and the race
+    /// time do not count the suspension. True by default. A lap or sector that overlaps a suspension is counted without
+    /// time in any case.
+    /// </summary>
+    public bool RedFlagStopsClock { get; set; } = true;
+
     /// <summary>Rules of a practice session: by best lap, timing from the first passing.</summary>
     public static TimingRules Practice(TimeSpan? duration = null) => new TimingRules
     {
