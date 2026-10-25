@@ -23,6 +23,10 @@ namespace LapViz.Telemetry.Timing;
 /// no sector time, never a wrong one); an intermediate line seen twice without a finish line passing in between
 /// counts a lap without time; once the checkered flag is out, the next finish line passing of each competitor
 /// finishes it and its later passings are ignored.
+/// A red flag suspends the session until the next flag (the restart): the clock stops (<see cref="TimingRules.RedFlagStopsClock"/>)
+/// and a lap or a sector that overlaps the suspension is counted without time; a lap longer than
+/// <see cref="TimingRules.MaxLapTime"/> too; a pit stop shorter than <see cref="TimingRules.MinPitStopTime"/> gets the
+/// missing time as a penalty.
 /// </remarks>
 public sealed class PassingTimingSession
 {
@@ -325,7 +329,7 @@ public sealed class PassingTimingSession
             state.Flag = CurrentFlag;
 
             var clockEnd = _checkeredAt.HasValue && _checkeredAt.Value < now ? _checkeredAt.Value : now;
-            state.RaceTime = start.HasValue ? Max(TimeSpan.Zero, clockEnd - start.Value) : null;
+            state.RaceTime = start.HasValue ? Max(TimeSpan.Zero, Elapsed(start.Value, clockEnd)) : null;
             state.TimeToGo = Rules.Duration.HasValue
                 ? Max(TimeSpan.Zero, Rules.Duration.Value - (state.RaceTime ?? TimeSpan.Zero))
                 : null;
@@ -372,7 +376,7 @@ public sealed class PassingTimingSession
                     BestTime = timing.BestLapTime,
                     Status = timing.Status,
                     HasFinished = timing.Finished,
-                    PenaltyTime = (int)Math.Round(timing.PenaltyTime.TotalSeconds),
+                    PenaltyTime = (int)Math.Round(timing.TotalPenaltyTime.TotalSeconds),
                     SectionTimes = (TimeSpan?[])current.Clone(),
                     BestSectionTimes = (TimeSpan?[])timing.BestSectorTimes.Clone(),
                     IsSectorPersonalBest = new bool[sectorCount],
@@ -505,9 +509,83 @@ public sealed class PassingTimingSession
         if (_checkeredAt.HasValue || Rules.Classification != TimingClassificationMode.BestLap || !Rules.Duration.HasValue)
             return;
 
+        if (EndOfDuration() is { } end && at >= end)
+            SetCheckered(end);
+    }
+
+    // ── Suspensions (red flag) ────────────────────────────────
+
+    /// <summary>The red flag periods so far: from a red flag to the next other flag, open while it is still out.</summary>
+    private IEnumerable<KeyValuePair<DateTimeOffset, DateTimeOffset?>> Suspensions()
+    {
+        DateTimeOffset? from = null;
+        foreach (var change in _flags)
+        {
+            if (change.Value == RaceFlag.Red)
+                from ??= change.Key;
+            else if (from.HasValue)
+            {
+                yield return new KeyValuePair<DateTimeOffset, DateTimeOffset?>(from.Value, change.Key);
+                from = null;
+            }
+        }
+
+        if (from.HasValue)
+            yield return new KeyValuePair<DateTimeOffset, DateTimeOffset?>(from.Value, null);
+    }
+
+    /// <summary>True when a suspension overlaps the interval from <paramref name="from"/> to <paramref name="to"/>.</summary>
+    private bool OverlapsSuspension(DateTimeOffset from, DateTimeOffset to) =>
+        Suspensions().Any(s => s.Key < to && (s.Value ?? DateTimeOffset.MaxValue) > from);
+
+    /// <summary>Session time from <paramref name="from"/> to <paramref name="to"/>: without the suspensions when they stop the clock.</summary>
+    private TimeSpan Elapsed(DateTimeOffset from, DateTimeOffset to)
+    {
+        var elapsed = to - from;
+        if (!Rules.RedFlagStopsClock)
+            return elapsed;
+        foreach (var s in Suspensions())
+        {
+            var a = s.Key > from ? s.Key : from;
+            var b = s.Value.HasValue && s.Value.Value < to ? s.Value.Value : to;
+            if (b > a)
+                elapsed -= b - a;
+        }
+
+        return elapsed;
+    }
+
+    /// <summary>When the duration of the session is reached (suspensions added); null when not timed, not started or suspended at that point.</summary>
+    private DateTimeOffset? EndOfDuration()
+    {
         var start = SessionStart;
-        if (start.HasValue && at >= start.Value + Rules.Duration.Value)
-            SetCheckered(start.Value + Rules.Duration.Value);
+        if (!Rules.Duration.HasValue || !start.HasValue)
+            return null;
+        if (!Rules.RedFlagStopsClock)
+            return start.Value + Rules.Duration.Value;
+
+        var t = start.Value;
+        var remaining = Rules.Duration.Value;
+        foreach (var s in Suspensions())
+        {
+            if (s.Key <= t)
+            {
+                if (!s.Value.HasValue)
+                    return null;
+                if (s.Value.Value > t)
+                    t = s.Value.Value;
+                continue;
+            }
+
+            if (s.Key - t >= remaining)
+                break;
+            remaining -= s.Key - t;
+            if (!s.Value.HasValue)
+                return null;
+            t = s.Value.Value;
+        }
+
+        return t + remaining;
     }
 
     private void SetCheckered(DateTimeOffset at)
@@ -539,9 +617,20 @@ public sealed class PassingTimingSession
             timing.InPit = true;
             timing.OnOutLap = false;
             timing.ChainLine = null;
+            timing.PitInAt = at;
         }
         else if (passing.Line == Layout.PitOutLine)
         {
+            if (timing.PitInAt.HasValue)
+            {
+                var duration = at - timing.PitInAt.Value;
+                var shortfall = Rules.MinPitStopTime > TimeSpan.Zero && duration < Rules.MinPitStopTime
+                    ? Rules.MinPitStopTime - duration
+                    : TimeSpan.Zero;
+                timing.AddPitStop(new TimingPitStop(timing.PitInAt.Value, at, shortfall));
+                timing.PitInAt = null;
+            }
+
             timing.InPit = false;
             timing.OnOutLap = true;
             timing.ChainLine = null;
@@ -614,11 +703,17 @@ public sealed class PassingTimingSession
         }
 
         // Last sector: only when the previous passing is the last intermediate line of this lap
-        if (Layout.SectorCount > 0 && timing.LapStartKnown && timing.ChainLine == Layout.SectorLines)
+        if (Layout.SectorCount > 0 && timing.LapStartKnown && timing.ChainLine == Layout.SectorLines && !OverlapsSuspension(timing.ChainAt, at))
             AddSectorEvent(timing, Layout.SectorLines, at - timing.ChainAt, at, sink);
 
         var lapNumber = timing.Laps + 1;
         TimeSpan? lapTime = timing.LapStartKnown && timing.LapStart.HasValue ? at - timing.LapStart.Value : null;
+        if (lapTime.HasValue && (OverlapsSuspension(timing.LapStart!.Value, at) || Rules.MaxLapTime > TimeSpan.Zero && lapTime.Value > Rules.MaxLapTime))
+        {
+            // Not representative: counted, never a best lap (no lap event, as a lap whose time is unknown)
+            lapTime = null;
+            timing.ExcludedLaps++;
+        }
         timing.AddLapCompletion(at);
         timing.LastLapTime = lapTime;
         if (lapTime.HasValue)
@@ -655,9 +750,8 @@ public sealed class PassingTimingSession
         if (Rules.Classification != TimingClassificationMode.Race || timing.Key != _leaderKey)
             return;
 
-        var start = SessionStart;
         var lapsDone = Rules.Laps > 0 && timing.Laps >= Rules.Laps;
-        var timeDone = Rules.Duration.HasValue && start.HasValue && at >= start.Value + Rules.Duration.Value;
+        var timeDone = EndOfDuration() is { } end && at >= end;
         if (lapsDone || timeDone)
         {
             SetCheckered(at);
@@ -679,7 +773,7 @@ public sealed class PassingTimingSession
         if (timing.MaxLineThisLap >= line)
             CountMissedLap(timing, at, previousPassingAt ?? at);
 
-        if (timing.ChainLine == line - 1)
+        if (timing.ChainLine == line - 1 && !OverlapsSuspension(timing.ChainAt, at))
             AddSectorEvent(timing, Layout.SectorEndedBy(line), at - timing.ChainAt, at, sink);
 
         timing.ChainLine = line;

@@ -544,4 +544,206 @@ public class PassingTimingSessionTests
             Assert.Equal(TimeSpan.Zero, state.TimeToGo);
         }
     }
+
+    public sealed class RaceControl
+    {
+        [Fact]
+        public void A_Red_Flag_Stops_The_Clock_And_Extends_A_Timed_Race()
+        {
+            var session = Race(duration: TimeSpan.FromSeconds(300));
+            session.Start(At(0));
+            session.SetFlag(RaceFlag.Red, At(100));
+
+            var state = new RaceSessionState();
+            session.ToRaceState(state, At(130));
+            Assert.Equal(RaceFlag.Red, state.Flag);
+            Assert.Equal(TimeSpan.FromSeconds(100), state.RaceTime); // stopped at the red flag
+            Assert.Equal(TimeSpan.FromSeconds(200), state.TimeToGo);
+
+            session.SetFlag(RaceFlag.Green, At(160));
+            session.ToRaceState(state, At(200));
+            Assert.Equal(RaceFlag.Green, state.Flag);
+            Assert.Equal(TimeSpan.FromSeconds(140), state.RaceTime);
+
+            // 300 s of racing end at 360 s: the leader passing at 330 s goes on, at 370 s takes the flag
+            session.AddPassing(P("A", 330));
+            Assert.Null(session.CheckeredAt);
+            session.AddPassing(P("A", 370));
+            Assert.Equal(At(370), session.CheckeredAt);
+        }
+
+        [Fact]
+        public void Without_The_Clock_Rule_The_Red_Flag_Does_Not_Extend_The_Race()
+        {
+            var session = Race(duration: TimeSpan.FromSeconds(300));
+            session.Rules.RedFlagStopsClock = false;
+            session.Start(At(0));
+            session.SetFlag(RaceFlag.Red, At(100));
+            session.SetFlag(RaceFlag.Green, At(160));
+            session.AddPassing(P("A", 330));
+            Assert.Equal(At(330), session.CheckeredAt);
+        }
+
+        [Fact]
+        public void A_Timed_Practice_Ends_Later_After_A_Suspension_And_Never_While_Suspended()
+        {
+            var session = Practice(duration: TimeSpan.FromSeconds(600));
+            session.Start(At(0));
+            session.SetFlag(RaceFlag.Red, At(500));
+
+            var state = new RaceSessionState();
+            session.ToRaceState(state, At(800));
+            Assert.Equal(RaceFlag.Red, state.Flag); // the time would be up, but the clock is stopped
+
+            session.SetFlag(RaceFlag.Green, At(900));
+            session.ToRaceState(state, At(950));
+            Assert.Equal(TimeSpan.FromSeconds(50), state.TimeToGo);
+            session.ToRaceState(state, At(1001));
+            Assert.Equal(RaceFlag.Checkered, state.Flag);
+            Assert.Equal(At(1000), session.CheckeredAt);
+        }
+
+        [Fact]
+        public void A_Lap_Overlapping_A_Red_Flag_Counts_Without_Time()
+        {
+            var session = Race(laps: 10);
+            session.Start(At(0));
+            session.AddPassing(P("A", 50));
+            session.AddPassing(P("A", 100));
+            session.SetFlag(RaceFlag.Red, At(120));
+            session.SetFlag(RaceFlag.Green, At(200));
+            session.AddPassing(P("A", 230));
+            session.AddPassing(P("A", 278));
+
+            var a = session.GetTiming("A")!;
+            Assert.Equal(4, a.Laps);
+            Assert.Equal(1, a.ExcludedLaps);
+            Assert.Equal(TimeSpan.FromSeconds(48), a.BestLapTime);
+            Assert.DoesNotContain(a.Session.Events, e => e.Type == SessionEventType.Lap && e.Time > TimeSpan.FromSeconds(100));
+            Assert.Equal(new[] { 1, 2, 4 }, a.Session.Events.Where(e => e.Type == SessionEventType.Lap && e.LapNumber > 0).Select(e => e.LapNumber));
+        }
+
+        [Fact]
+        public void A_Red_Flag_Received_Late_Gives_The_Same_Result()
+        {
+            PassingTimingSession Build(bool late)
+            {
+                var session = Race(laps: 10);
+                session.Start(At(0));
+                if (!late)
+                    session.SetFlag(RaceFlag.Red, At(120));
+                foreach (var t in new[] { 50.0, 100, 230, 278 })
+                {
+                    if (!late && t > 200)
+                        session.SetFlag(RaceFlag.Green, At(200));
+                    session.AddPassing(P("A", t));
+                }
+                if (late)
+                {
+                    session.SetFlag(RaceFlag.Red, At(120));
+                    session.SetFlag(RaceFlag.Green, At(200));
+                }
+                return session;
+            }
+
+            var inOrder = Build(late: false).GetTiming("A")!;
+            var late = Build(late: true).GetTiming("A")!;
+            Assert.Equal(inOrder.ExcludedLaps, late.ExcludedLaps);
+            Assert.Equal(inOrder.BestLapTime, late.BestLapTime);
+            Assert.Equal(inOrder.LastLapTime, late.LastLapTime);
+        }
+
+        [Fact]
+        public void A_Sector_Overlapping_A_Red_Flag_Has_No_Time()
+        {
+            var session = new PassingTimingSession(new TimingLineLayout(2), TimingRules.Practice());
+            session.Start(At(0));
+            session.AddPassing(P("A", 10));
+            session.AddPassing(P("A", 30, line: 2));
+            session.SetFlag(RaceFlag.Red, At(40));
+            session.SetFlag(RaceFlag.Green, At(90));
+            session.AddPassing(P("A", 100));
+            session.AddPassing(P("A", 120, line: 2));
+
+            var a = session.GetTiming("A")!;
+            Assert.Equal(new TimeSpan?[] { TimeSpan.FromSeconds(20), null }, a.PreviousLapSectorTimes);
+            Assert.Equal(TimeSpan.FromSeconds(20), a.SectorTimes[0]);
+            Assert.Null(a.BestSectorTimes[1]);
+        }
+
+        [Fact]
+        public void A_Lap_Longer_Than_The_Maximum_Counts_Without_Time()
+        {
+            var session = Practice();
+            session.Rules.MaxLapTime = TimeSpan.FromSeconds(120);
+            session.AddPassing(P("A", 0));
+            session.AddPassing(P("A", 60));
+            session.AddPassing(P("A", 300)); // stopped on track
+            Assert.Null(session.GetTiming("A")!.LastLapTime);
+            session.AddPassing(P("A", 355));
+
+            var a = session.GetTiming("A")!;
+            Assert.Equal(3, a.Laps);
+            Assert.Equal(1, a.ExcludedLaps);
+            Assert.Equal(TimeSpan.FromSeconds(55), a.BestLapTime);
+            Assert.Equal(TimeSpan.FromSeconds(55), a.LastLapTime);
+        }
+
+        [Fact]
+        public void A_Short_Pit_Stop_Gets_The_Missing_Time_As_A_Penalty()
+        {
+            var rules = TimingRules.Race(laps: 3);
+            rules.MinLapTime = TimeSpan.FromSeconds(20);
+            rules.MinPitStopTime = TimeSpan.FromSeconds(30);
+            var session = new PassingTimingSession(new TimingLineLayout(1, pitInLine: 10, pitOutLine: 11), rules);
+            session.Start(At(0));
+
+            // A pits for 20 s (10 s short), B for 35 s; A crosses the line first, 5 s ahead
+            session.AddPassing(P("A", 50));
+            session.AddPassing(P("B", 51));
+            session.AddPassing(P("A", 80, line: 10));
+            session.AddPassing(P("A", 100, line: 11));
+            session.AddPassing(P("B", 75, line: 10));
+            session.AddPassing(P("B", 110, line: 11));
+            session.AddPassing(P("A", 150));
+            session.AddPassing(P("B", 155));
+            session.AddPassing(P("A", 200));
+            session.AddPassing(P("B", 205));
+
+            var a = session.GetTiming("A")!;
+            var stop = Assert.Single(a.PitStops);
+            Assert.Equal(TimeSpan.FromSeconds(20), stop.Duration);
+            Assert.Equal(TimeSpan.FromSeconds(10), stop.Shortfall);
+            Assert.Equal(TimeSpan.FromSeconds(10), a.TotalPenaltyTime);
+            Assert.Equal(TimeSpan.Zero, session.GetTiming("B")!.TotalPenaltyTime);
+
+            var rows = session.Classify(At(300));
+            Assert.Equal(new[] { "B", "A" }, rows.Select(r => r.Timing.Key));
+
+            var state = new RaceSessionState();
+            session.ToRaceState(state, At(300));
+            Assert.Equal(10, state.Entries.Values.Single(e => e.Driver.Id == "A").PenaltyTime);
+        }
+
+        [Fact]
+        public void The_New_Rules_Go_Through_The_Journal()
+        {
+            var rules = TimingRules.Race(laps: 20);
+            rules.MaxLapTime = TimeSpan.FromSeconds(180);
+            rules.MinPitStopTime = TimeSpan.FromSeconds(45);
+            rules.RedFlagStopsClock = false;
+            var line = TimingJournal.Serialize(TimingJournal.Session(new TimingLineLayout(1, 10, 11), rules));
+            var copy = TimingJournal.CreateSession(TimingJournal.Parse(line)!).Rules;
+            Assert.Equal(TimeSpan.FromSeconds(180), copy.MaxLapTime);
+            Assert.Equal(TimeSpan.FromSeconds(45), copy.MinPitStopTime);
+            Assert.False(copy.RedFlagStopsClock);
+
+            // A journal written before these rules: none of them
+            var old = TimingJournal.CreateSession(TimingJournal.Parse(TimingJournal.Serialize(TimingJournal.Session(new TimingLineLayout(), TimingRules.Race(laps: 5))))!).Rules;
+            Assert.Equal(TimeSpan.Zero, old.MaxLapTime);
+            Assert.Equal(TimeSpan.Zero, old.MinPitStopTime);
+            Assert.True(old.RedFlagStopsClock);
+            Assert.DoesNotContain("maxLap", TimingJournal.Serialize(TimingJournal.Session(new TimingLineLayout(), TimingRules.Race(laps: 5))));
+        }
+    }
 }

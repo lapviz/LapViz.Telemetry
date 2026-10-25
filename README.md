@@ -31,8 +31,9 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
 
 * 🏁 **Timing from passings**  
   `PassingTimingSession` times a session from the passings of transponders (decoder loops), LapViz devices
-  or line crossings: laps and sectors, minimum lap time, duplicates and missed loops, start signal or first crossing,
-  checkered flag by laps, time or hand, penalties, classification by best lap or as a race, and the race model of
+  or line crossings: laps and sectors, minimum and maximum lap time, duplicates and missed loops, start signal or first crossing,
+  checkered flag by laps, time or hand, red flag (suspension and restart, clock stopped), minimum pit stop time,
+  penalties, classification by best lap or as a race, and the race model of
   OpenLiveTiming (`RaceSessionState`). Passings and commands form a journal: the result is the same whatever their
   order of arrival.
   `TimingJournal` writes and replays them (NDJSON), `PassingSimulator` generates the passings of a field (missed and
