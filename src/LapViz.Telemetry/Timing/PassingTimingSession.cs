@@ -708,7 +708,7 @@ public sealed class PassingTimingSession
 
         var lapNumber = timing.Laps + 1;
         TimeSpan? lapTime = timing.LapStartKnown && timing.LapStart.HasValue ? at - timing.LapStart.Value : null;
-        if (lapTime.HasValue && (OverlapsSuspension(timing.LapStart!.Value, at) || Rules.MaxLapTime > TimeSpan.Zero && lapTime.Value > Rules.MaxLapTime))
+        if (lapTime.HasValue && (OverlapsSuspension(timing.LapStart!.Value, at) || (Rules.MaxLapTime > TimeSpan.Zero && lapTime.Value > Rules.MaxLapTime)))
         {
             // Not representative: counted, never a best lap (no lap event, as a lap whose time is unknown)
             lapTime = null;
