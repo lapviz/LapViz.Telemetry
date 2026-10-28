@@ -326,9 +326,9 @@ public class LapVizFileTests
         // Sector 2 of lap 1 not crossed: sector 3 stays the third one (it used to become the second)
         var events = new List<SessionDataEvent>
         {
-            new() { Type = SessionEventType.Sector, LapNumber = 1, Sector = 1, Time = TimeSpan.FromSeconds(20), Timestamp = Start.AddSeconds(20) },
-            new() { Type = SessionEventType.Sector, LapNumber = 1, Sector = 3, Time = TimeSpan.FromSeconds(40), Timestamp = Start.AddSeconds(60) },
-            new() { Type = SessionEventType.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(60), Timestamp = Start.AddSeconds(60) },
+            new SessionDataEvent { Type = SessionEventType.Sector, LapNumber = 1, Sector = 1, Time = TimeSpan.FromSeconds(20), Timestamp = Start.AddSeconds(20) },
+            new SessionDataEvent { Type = SessionEventType.Sector, LapNumber = 1, Sector = 3, Time = TimeSpan.FromSeconds(40), Timestamp = Start.AddSeconds(60) },
+            new SessionDataEvent { Type = SessionEventType.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(60), Timestamp = Start.AddSeconds(60) },
         };
 
         var source = LapVizFile.TimingSource("LapViz", false, null, events, Start);
