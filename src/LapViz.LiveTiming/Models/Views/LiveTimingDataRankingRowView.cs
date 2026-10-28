@@ -23,8 +23,17 @@ public class LiveTimingDataRankingRowView : IEquatable<LiveTimingDataRankingRowV
         }
     }
 
+    /// <summary>Gap to the leader in time; null for the leader and, in a race, when laps down.</summary>
     public TimeSpan? Gap { get; internal set; }
+
+    /// <summary>Race ranking: laps down on the leader, 0 on the same lap.</summary>
+    public int GapLaps { get; internal set; }
+
+    /// <summary>Interval to the device ahead in time; null for the leader and, in a race, when laps down.</summary>
     public TimeSpan? Interval { get; internal set; }
+
+    /// <summary>Race ranking: laps down on the device ahead, 0 on the same lap.</summary>
+    public int IntervalLaps { get; internal set; }
     public LiveTimingDataRankingTableView Table { get; internal set; }
 
     public bool Equals(LiveTimingDataRankingRowView? other)

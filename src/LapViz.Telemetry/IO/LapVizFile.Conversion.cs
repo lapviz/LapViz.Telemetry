@@ -217,12 +217,23 @@ public sealed partial class LapVizFile
         };
     }
 
-    private static List<double> SectorTimes(IEnumerable<SessionDataEvent> sectors) =>
-        sectors
+    /// <summary>
+    /// The times of the sectors of a lap by their number (sector 1 first): a sector the logger or the detection missed
+    /// keeps its place with 0 (no time), else every sector after it would take the number of the one before.
+    /// </summary>
+    private static List<double> SectorTimes(IEnumerable<SessionDataEvent> sectors)
+    {
+        var times = sectors
             .GroupBy(s => s.Sector)
-            .OrderBy(s => s.Key)
-            .Select(s => s.OrderBy(e => e.Timestamp).Last().Time.TotalSeconds)
+            .ToDictionary(s => s.Key, s => s.OrderBy(e => e.Timestamp).Last().Time.TotalSeconds);
+        if (times.Count == 0)
+            return new List<double>();
+
+        var first = Math.Min(1, times.Keys.Min());
+        return Enumerable.Range(first, times.Keys.Max() - first + 1)
+            .Select(sector => times.TryGetValue(sector, out var time) ? time : 0)
             .ToList();
+    }
 
     /// <summary>Lap and sector crossings of a timing source.</summary>
     private IEnumerable<SessionDataEvent> Events(LapVizTimingSource source)
@@ -235,6 +246,9 @@ public sealed partial class LapVizFile
             {
                 var time = TimeSpan.FromTicks((long)Math.Round(lap.Sectors![sector] * TimeSpan.TicksPerSecond));
                 elapsed += time;
+                if (time <= TimeSpan.Zero)
+                    continue; // A sector without time keeps the place of the next ones only
+
                 yield return new SessionDataEvent
                 {
                     Type = SessionEventType.Sector,

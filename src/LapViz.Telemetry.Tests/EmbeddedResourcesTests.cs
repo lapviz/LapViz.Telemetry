@@ -11,7 +11,7 @@ public class EmbeddedResourcesTests
     {
         var circuits = new StaticCircuitService().InitializeCircuits();
 
-        Assert.Equal(191, circuits.Count);
+        Assert.Equal(193, circuits.Count);
         Assert.All(circuits, c =>
         {
             Assert.False(string.IsNullOrEmpty(c.Code));
@@ -22,7 +22,7 @@ public class EmbeddedResourcesTests
         });
 
         var mettet = circuits.Single(c => c.Code == "mettet");
-        Assert.Equal("Mettet", mettet.Name);
+        Assert.Equal("Circuit Jules Tacheny Mettet", mettet.Name);
         Assert.Equal(CircuitType.Closed, mettet.Type);
         Assert.True(mettet.UseDirection);
         Assert.Equal(17, mettet.Zoom);
@@ -35,7 +35,7 @@ public class EmbeddedResourcesTests
 
     /// <summary>
     /// Known errors of the dataset, to fix with real coordinates: 120 (Hockenheim) has both
-    /// box corners equal, 209 (Brands Hatch industrial) has the start line of 208 (Parc Blyton).
+    /// box corners equal, 209 (Brands Hatch Indy) has the start line of 208 (Blyton Park).
     /// </summary>
     private static readonly HashSet<string> KnownBadGeometry = new HashSet<string> { "120", "209" };
 
@@ -76,6 +76,22 @@ public class EmbeddedResourcesTests
         }
 
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
+    /// <summary>
+    /// The names are the real names of the circuits, as the circuits write them: an assistant or a search engine cannot
+    /// match "circuit dijon pernois" or a machine translation with the real circuit.
+    /// </summary>
+    [Fact]
+    public void Builtin_Circuits_Have_Their_Real_Names()
+    {
+        var circuits = new StaticCircuitService().InitializeCircuits();
+
+        Assert.All(circuits, c => Assert.True(char.IsUpper(c.Name[0]) || char.IsDigit(c.Name[0]), $"{c.Code}: \"{c.Name}\" starts in lower case"));
+        Assert.All(circuits, c => Assert.Equal(c.Name.Trim(), c.Name));
+        Assert.Equal(circuits.Count, circuits.Select(c => c.Name).Distinct().Count());
+        Assert.Equal("Circuit Dijon-Prenois", circuits.Single(c => c.Code == "100").Name);
+        Assert.Equal("Brands Hatch (Indy)", circuits.Single(c => c.Code == "209").Name);
     }
 
     [Fact]

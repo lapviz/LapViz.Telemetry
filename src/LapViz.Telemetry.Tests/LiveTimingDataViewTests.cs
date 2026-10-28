@@ -244,6 +244,66 @@ public class LiveTimingDataViewTests
     public sealed class GetRanking_Tests
     {
         [Fact]
+        public void Race_Ranks_By_Laps_Then_By_Who_Completed_The_Lap_First()
+        {
+            var view = NewView();
+            var t0 = new DateTimeOffset(2026, 10, 24, 14, 0, 0, TimeSpan.Zero);
+
+            // A: 2 laps at 50 s and 100 s; B: 2 laps at 51 s and 103 s; C: 1 lap at 70 s
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[]
+            {
+                new SessionDeviceEventDto { Id = "a1", Type = SessionEventTypeDto.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(50), Timestamp = t0.AddSeconds(50) },
+                new SessionDeviceEventDto { Id = "a2", Type = SessionEventTypeDto.Lap, LapNumber = 2, Time = TimeSpan.FromSeconds(50), Timestamp = t0.AddSeconds(100) },
+            }), false);
+            view.AddDeviceEvents(DeviceDto("B", "Bravo", "C", new[]
+            {
+                new SessionDeviceEventDto { Id = "b1", Type = SessionEventTypeDto.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(51), Timestamp = t0.AddSeconds(51) },
+                new SessionDeviceEventDto { Id = "b2", Type = SessionEventTypeDto.Lap, LapNumber = 2, Time = TimeSpan.FromSeconds(52), Timestamp = t0.AddSeconds(103) },
+            }), false);
+            view.AddDeviceEvents(DeviceDto("C", "Charlie", "C", new[]
+            {
+                new SessionDeviceEventDto { Id = "c1", Type = SessionEventTypeDto.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(70), Timestamp = t0.AddSeconds(70) },
+            }), false);
+
+            var race = view.GetRanking(LiveTimingDataRankingType.Race).Rows;
+            Assert.Equal(new[] { "A", "B", "C" }, race.Select(r => r.DeviceId));
+            Assert.Equal(TimeSpan.FromSeconds(3), race[1].Gap);
+            Assert.Equal(0, race[1].GapLaps);
+            Assert.Equal(TimeSpan.FromSeconds(20), race[2].Gap); // C completed lap 1 at 70 s, A at 50 s
+            Assert.Equal(TimeSpan.FromSeconds(19), race[2].Interval);
+
+            // By best lap the gaps stay those of the best laps
+            var qualifying = view.GetRanking(LiveTimingDataRankingType.Qualifying).Rows;
+            Assert.Equal(new[] { "A", "B", "C" }, qualifying.Select(r => r.DeviceId));
+            Assert.Equal(TimeSpan.FromSeconds(1), qualifying[1].Gap);
+        }
+
+        [Fact]
+        public void Race_Gap_Is_In_Laps_When_The_Leader_Was_A_Lap_Ahead()
+        {
+            var view = NewView();
+            var t0 = new DateTimeOffset(2026, 10, 24, 14, 0, 0, TimeSpan.Zero);
+
+            view.AddDeviceEvents(DeviceDto("A", "Alpha", "C", new[]
+            {
+                new SessionDeviceEventDto { Id = "a1", Type = SessionEventTypeDto.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(50), Timestamp = t0.AddSeconds(50) },
+                new SessionDeviceEventDto { Id = "a2", Type = SessionEventTypeDto.Lap, LapNumber = 2, Time = TimeSpan.FromSeconds(50), Timestamp = t0.AddSeconds(100) },
+                new SessionDeviceEventDto { Id = "a3", Type = SessionEventTypeDto.Lap, LapNumber = 3, Time = TimeSpan.FromSeconds(50), Timestamp = t0.AddSeconds(150) },
+            }), false);
+            view.AddDeviceEvents(DeviceDto("B", "Bravo", "C", new[]
+            {
+                new SessionDeviceEventDto { Id = "b1", Type = SessionEventTypeDto.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(70), Timestamp = t0.AddSeconds(70) },
+                new SessionDeviceEventDto { Id = "b2", Type = SessionEventTypeDto.Lap, LapNumber = 2, Time = TimeSpan.FromSeconds(90), Timestamp = t0.AddSeconds(160) },
+            }), false);
+
+            var row = view.GetRanking(LiveTimingDataRankingType.Race).Rows[1];
+            Assert.Equal("B", row.DeviceId);
+            Assert.Equal(1, row.GapLaps);
+            Assert.Null(row.Gap);
+            Assert.Equal(1, row.IntervalLaps);
+        }
+
+        [Fact]
         public void Deletion_Received_Before_The_Lap_Keeps_It_Deleted()
         {
             var view = NewView();
