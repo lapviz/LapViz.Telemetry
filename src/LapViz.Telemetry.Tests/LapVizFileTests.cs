@@ -321,6 +321,26 @@ public class LapVizFileTests
     }
 
     [Fact]
+    public void AMissedSectorKeepsThePlaceOfTheNextOnes()
+    {
+        // Sector 2 of lap 1 not crossed: sector 3 stays the third one (it used to become the second)
+        var events = new List<SessionDataEvent>
+        {
+            new() { Type = SessionEventType.Sector, LapNumber = 1, Sector = 1, Time = TimeSpan.FromSeconds(20), Timestamp = Start.AddSeconds(20) },
+            new() { Type = SessionEventType.Sector, LapNumber = 1, Sector = 3, Time = TimeSpan.FromSeconds(40), Timestamp = Start.AddSeconds(60) },
+            new() { Type = SessionEventType.Lap, LapNumber = 1, Time = TimeSpan.FromSeconds(60), Timestamp = Start.AddSeconds(60) },
+        };
+
+        var source = LapVizFile.TimingSource("LapViz", false, null, events, Start);
+
+        Assert.Equal(new[] { 20.0, 0, 40 }, source.Laps[0].Sectors);
+        var file = new LapVizFile(Start);
+        file.Timing.Add(source);
+        var back = LapVizFile.Read(new MemoryStream(file.ToBytes())).ToDeviceSessionData();
+        Assert.Equal(new[] { 1, 3 }, back.Events.Where(x => x.Type == SessionEventType.Sector).Select(x => x.Sector).ToArray());
+    }
+
+    [Fact]
     public void IncompleteLapKeepsItsSectors()
     {
         var file = new LapVizFile(Start);
