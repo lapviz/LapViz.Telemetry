@@ -39,6 +39,10 @@ def main():
             assert (x is None) == (y is None) and (x is None or abs(x - y) <= tolerance * max(1, abs(y))), (name, x, y)
     print(f"binary.lvz and csv.lvz: the same {len(binary.time)} samples of {len(binary.channels)} channels")
 
+    assert binary.timing()["source"] == "LapViz" and binary.events()[0]["type"] == "marker"
+    assert len(binary.timing()["circuit"]["lines"]) == 3, "the timing lines of the circuit"
+    assert binary.manifest["samples"]["sha256"] and csv.manifest["samples"]["sha256"], "samples checked by their SHA-256"
+
     laptimes = read(ROOT / "docs" / "examples" / "laptimes-only.lvz")
     assert not laptimes.time and laptimes.best_lap()["duration"] == 60.115
     print("laptimes-only.lvz: laps without samples")

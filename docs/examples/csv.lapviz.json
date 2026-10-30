@@ -7,6 +7,7 @@
   },
   "session": {
     "start": "2026-09-12T10:00:00.0000000\u002B02:00",
+    "clock": "gps",
     "driver": "Alex Example",
     "vehicle": "Kart, 125 cc",
     "device": {
@@ -39,41 +40,92 @@
     {
       "name": "Latitude",
       "unit": "deg",
-      "type": "float64"
+      "type": "float64",
+      "rate": 10,
+      "origin": "gps"
     },
     {
       "name": "Longitude",
       "unit": "deg",
-      "type": "float64"
+      "type": "float64",
+      "rate": 10,
+      "origin": "gps"
     },
     {
       "name": "GPS Speed",
       "unit": "km/h",
-      "type": "float32"
+      "type": "float32",
+      "rate": 10,
+      "origin": "gps"
     },
     {
       "name": "RPM",
       "unit": "rpm",
-      "type": "float32"
+      "type": "float32",
+      "rate": 20,
+      "origin": "ecu"
+    },
+    {
+      "name": "Gear",
+      "type": "float32",
+      "origin": "computed",
+      "interpolation": "step"
     }
   ],
   "samples": {
     "file": "samples.csv",
     "encoding": "csv",
-    "count": 1518
+    "count": 1518,
+    "sha256": "7d3fb699f7875c3d7070059ee9da2334e3554a6cdc86a24d52c69795ff283b24"
   },
   "timing": [
     {
       "source": "LapViz",
       "device": true,
       "circuit": {
-        "code": "example-oval"
+        "code": "example-oval",
+        "type": "closed",
+        "lines": [
+          [
+            {
+              "lat": 50.5008823,
+              "lon": 5.499198
+            },
+            {
+              "lat": 50.5014115,
+              "lon": 5.499037
+            }
+          ],
+          [
+            {
+              "lat": 50.4993359,
+              "lon": 5.4982206
+            },
+            {
+              "lat": 50.4988646,
+              "lon": 5.4978094
+            }
+          ],
+          [
+            {
+              "lat": 50.4998649,
+              "lon": 5.5025467
+            },
+            {
+              "lat": 50.4997199,
+              "lon": 5.5033628
+            }
+          ]
+        ]
       },
       "laps": [
         {
           "number": 0,
           "start": 0,
-          "duration": 18
+          "duration": 18,
+          "flags": [
+            "pitOut"
+          ]
         },
         {
           "number": 1,
@@ -97,9 +149,31 @@
         },
         {
           "number": 3,
-          "start": 139.355
+          "start": 139.355,
+          "flags": [
+            "pitIn"
+          ]
         }
       ]
+    },
+    {
+      "source": "Results sheet",
+      "declared": true,
+      "laps": [
+        {
+          "number": 2,
+          "start": 79.24,
+          "duration": 60.12
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "time": 95.2,
+      "type": "marker",
+      "label": "Kerb too high in turn 2",
+      "source": "driver"
     }
   ]
 }

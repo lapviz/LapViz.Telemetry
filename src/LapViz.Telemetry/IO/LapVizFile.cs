@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LapViz.Telemetry.Domain;
@@ -63,6 +64,9 @@ public sealed partial class LapVizFile
 
     /// <summary>Timing sources and their laps.</summary>
     public IList<LapVizTimingSource> Timing { get; set; } = new List<LapVizTimingSource>();
+
+    /// <summary>Instants of the session: markers, beacons, flags... ordered by time.</summary>
+    public IList<LapVizEvent> Events { get; set; } = new List<LapVizEvent>();
 
     /// <summary>Number of samples.</summary>
     public int Count => Time.Length;
@@ -124,11 +128,13 @@ public sealed partial class LapVizFile
     public DateTimeOffset TimestampAt(int index) => Session.Start.AddTicks(Time[index] * 10);
 
     /// <summary>
-    /// The timing source to use by default: the first one measured by the logger that has laps, else the first one with
-    /// laps, else null.
+    /// The timing source to use by default: the first one measured by the logger that has laps, else the first measured one
+    /// (not declared) with laps, else the first one with laps, else null.
     /// </summary>
     public LapVizTimingSource? PreferredTiming =>
-        Timing.FirstOrDefault(x => x.IsDevice && x.Laps.Any(l => l.IsComplete)) ?? Timing.FirstOrDefault(x => x.Laps.Any(l => l.IsComplete));
+        Timing.FirstOrDefault(x => x.IsDevice && x.Laps.Any(l => l.IsComplete)) ??
+        Timing.FirstOrDefault(x => !x.IsDeclared && x.Laps.Any(l => l.IsComplete)) ??
+        Timing.FirstOrDefault(x => x.Laps.Any(l => l.IsComplete));
 
     /// <summary>True when the stream is a LapViz version 2 archive (a ZIP holding <c>lapviz.json</c>).</summary>
     public static bool IsLapVizArchive(Stream stream)
@@ -176,6 +182,9 @@ public sealed partial class LapVizFile
                 var entry = zip.GetEntry(samples.File) ?? throw new InvalidDataException("Missing samples entry: " + samples.File);
                 // Binary samples have an exact size: nothing more is decompressed (ZipLimits for the CSV ones)
                 var data = ZipLimits.ReadAll(entry, samples.Encoding == LapVizSampleEncoding.Binary ? file.BinarySamplesLength(samples.Count) : (long?)null);
+                if (samples.Sha256 != null && !string.Equals(samples.Sha256, Sha256(data), StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(samples.File + " is damaged: its SHA-256 is not the one of the manifest");
+
                 if (samples.Encoding == LapVizSampleEncoding.Binary)
                     file.ReadBinarySamples(data, samples.Count, samples.ByteShuffle);
                 else
@@ -212,19 +221,31 @@ public sealed partial class LapVizFile
             var hasSamples = Count > 0 || _channels.Count > 0;
             var samplesEntry = options.Encoding == LapVizSampleEncoding.Binary ? BinarySamplesEntry : CsvSamplesEntry;
 
+            // The samples are encoded first: the manifest, written before them, holds their SHA-256
+            var samples = Array.Empty<byte>();
+            if (hasSamples)
+            {
+                using (var buffer = new MemoryStream())
+                {
+                    if (options.Encoding == LapVizSampleEncoding.Binary)
+                        WriteBinarySamples(buffer, options.ByteShuffle);
+                    else
+                        WriteCsvSamples(buffer);
+
+                    samples = buffer.ToArray();
+                }
+            }
+
             using (var manifest = zip.CreateEntry(ManifestEntry, options.Compression).Open())
             {
-                WriteManifest(manifest, options, hasSamples ? samplesEntry : null);
+                WriteManifest(manifest, options, hasSamples ? samplesEntry : null, hasSamples && options.Checksum ? Sha256(samples) : null);
             }
 
             if (hasSamples)
             {
-                using (var samples = zip.CreateEntry(samplesEntry, options.Compression).Open())
+                using (var entry = zip.CreateEntry(samplesEntry, options.Compression).Open())
                 {
-                    if (options.Encoding == LapVizSampleEncoding.Binary)
-                        WriteBinarySamples(samples, options.ByteShuffle);
-                    else
-                        WriteCsvSamples(samples);
+                    entry.Write(samples, 0, samples.Length);
                 }
             }
         }
@@ -269,6 +290,20 @@ public sealed partial class LapVizFile
         stream.CopyTo(copy);
         copy.Position = 0;
         return copy;
+    }
+
+    /// <summary>SHA-256 of <paramref name="data"/>, lowercase hexadecimal.</summary>
+    private static string Sha256(byte[] data)
+    {
+        using (var sha = SHA256.Create())
+        {
+            var hash = sha.ComputeHash(data);
+            var text = new StringBuilder(hash.Length * 2);
+            foreach (var b in hash)
+                text.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+
+            return text.ToString();
+        }
     }
 
     /// <summary>Largest manifest read: it holds the metadata and the laps, never the samples.</summary>
@@ -531,7 +566,7 @@ public sealed partial class LapVizFile
     }
 
     // Manifest (section 2 of the specification)
-    private void WriteManifest(Stream stream, LapVizWriteOptions options, string? samplesEntry)
+    private void WriteManifest(Stream stream, LapVizWriteOptions options, string? samplesEntry, string? samplesSha256)
     {
         using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = options.IndentManifest }))
         {
@@ -549,6 +584,7 @@ public sealed partial class LapVizFile
 
             json.WriteStartObject("session");
             json.WriteString("start", Session.Start.ToString("yyyy-MM-ddTHH:mm:ss.fffffffzzz", CultureInfo.InvariantCulture));
+            WriteOptional(json, "clock", Session.Clock);
             WriteOptional(json, "driver", Session.Driver);
             WriteOptional(json, "vehicle", Session.Vehicle);
             if (Session.Device != null)
@@ -585,6 +621,13 @@ public sealed partial class LapVizFile
                 WriteOptional(json, "unit", channel.Unit);
                 json.WriteString("type", channel.Type == LapVizValueType.Float32 ? "float32" : "float64");
                 WriteOptional(json, "description", channel.Description);
+                if (channel.Rate > 0)
+                    WriteOptional(json, "rate", channel.Rate);
+
+                WriteOptional(json, "origin", channel.Origin);
+                if (channel.Interpolation == LapVizInterpolation.Step)
+                    json.WriteString("interpolation", "step");
+
                 json.WriteEndObject();
             }
 
@@ -599,6 +642,8 @@ public sealed partial class LapVizFile
                 if (options.Encoding == LapVizSampleEncoding.Binary)
                     json.WriteBoolean("byteShuffle", options.ByteShuffle);
 
+                WriteOptional(json, "sha256", samplesSha256);
+
                 json.WriteEndObject();
             }
 
@@ -611,6 +656,8 @@ public sealed partial class LapVizFile
                     json.WriteString("source", source.Source ?? string.Empty);
                     if (source.IsDevice)
                         json.WriteBoolean("device", true);
+                    if (source.IsDeclared)
+                        json.WriteBoolean("declared", true);
 
                     WriteCircuit(json, source.Circuit);
                     json.WriteStartArray("laps");
@@ -631,10 +678,36 @@ public sealed partial class LapVizFile
                             json.WriteEndArray();
                         }
 
+                        if (lap.Flags != null && lap.Flags.Any(x => !string.IsNullOrEmpty(x)))
+                        {
+                            json.WriteStartArray("flags");
+                            foreach (var flag in lap.Flags.Where(x => !string.IsNullOrEmpty(x)).Distinct())
+                                json.WriteStringValue(flag);
+
+                            json.WriteEndArray();
+                        }
+
+                        WriteOptional(json, "driver", lap.Driver);
                         json.WriteEndObject();
                     }
 
                     json.WriteEndArray();
+                    json.WriteEndObject();
+                }
+
+                json.WriteEndArray();
+            }
+
+            if (Events != null && Events.Count > 0)
+            {
+                json.WriteStartArray("events");
+                foreach (var item in Events.Where(x => !string.IsNullOrEmpty(x.Type)).OrderBy(x => x.Time))
+                {
+                    json.WriteStartObject();
+                    json.WriteNumber("time", Math.Round(item.Time, 6));
+                    json.WriteString("type", item.Type);
+                    WriteOptional(json, "label", item.Label);
+                    WriteOptional(json, "source", item.Source);
                     json.WriteEndObject();
                 }
 
@@ -647,13 +720,36 @@ public sealed partial class LapVizFile
 
     private static void WriteCircuit(Utf8JsonWriter json, LapVizCircuit? circuit)
     {
-        if (circuit == null || (circuit.Code == null && circuit.Name == null && circuit.CountryCode == null))
+        if (circuit == null || circuit.IsEmpty)
             return;
 
         json.WriteStartObject("circuit");
         WriteOptional(json, "code", circuit.Code);
         WriteOptional(json, "name", circuit.Name);
         WriteOptional(json, "countryCode", circuit.CountryCode);
+        if (circuit.Type.HasValue)
+            json.WriteString("type", circuit.Type == CircuitType.Open ? "open" : "closed");
+
+        if (circuit.Lines != null && circuit.Lines.Count > 0)
+        {
+            json.WriteStartArray("lines");
+            foreach (var line in circuit.Lines)
+            {
+                json.WriteStartArray();
+                foreach (var point in new[] { line.Start, line.End })
+                {
+                    json.WriteStartObject();
+                    json.WriteNumber("lat", point.Latitude);
+                    json.WriteNumber("lon", point.Longitude);
+                    json.WriteEndObject();
+                }
+
+                json.WriteEndArray();
+            }
+
+            json.WriteEndArray();
+        }
+
         json.WriteEndObject();
     }
 
@@ -725,6 +821,7 @@ public sealed partial class LapVizFile
                 throw new InvalidDataException("lapviz.json: invalid session.start " + startText);
 
             var file = new LapVizFile(start);
+            file.Session.Clock = String(session, "clock");
             if (root.TryGetProperty("generator", out var generator) && generator.ValueKind == JsonValueKind.Object)
                 file.Generator = new LapVizGenerator { Name = String(generator, "name"), Version = String(generator, "version") };
 
@@ -772,6 +869,9 @@ public sealed partial class LapVizFile
                     Name = name!,
                     Unit = String(channel, "unit"),
                     Description = String(channel, "description"),
+                    Rate = Number(channel, "rate") is > 0 and var rate ? rate : null,
+                    Origin = String(channel, "origin"),
+                    Interpolation = String(channel, "interpolation") == "step" ? LapVizInterpolation.Step : LapVizInterpolation.Linear,
                     Type = type == null || type == "float64" ? LapVizValueType.Float64
                         : type == "float32" ? LapVizValueType.Float32
                         : throw new InvalidDataException("lapviz.json: unknown type " + type + " of channel " + name),
@@ -790,6 +890,7 @@ public sealed partial class LapVizFile
                         : throw new InvalidDataException("lapviz.json: unknown samples.encoding " + encoding),
                     Count = samplesElement.TryGetProperty("count", out var count) && count.TryGetInt32(out var n) ? n : -1,
                     ByteShuffle = samplesElement.TryGetProperty("byteShuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True,
+                    Sha256 = String(samplesElement, "sha256"),
                 };
 
                 if (samples.Encoding == LapVizSampleEncoding.Binary && samples.Count < 0)
@@ -804,6 +905,7 @@ public sealed partial class LapVizFile
                     {
                         Source = String(source, "source") ?? string.Empty,
                         IsDevice = source.TryGetProperty("device", out var isDevice) && isDevice.ValueKind == JsonValueKind.True,
+                        IsDeclared = source.TryGetProperty("declared", out var isDeclared) && isDeclared.ValueKind == JsonValueKind.True,
                         Circuit = Circuit(source),
                     };
 
@@ -819,11 +921,27 @@ public sealed partial class LapVizFile
                                 Sectors = lap.TryGetProperty("sectors", out var sectors) && sectors.ValueKind == JsonValueKind.Array
                                     ? sectors.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetDouble()).ToList()
                                     : new List<double>(),
+                                Flags = lap.TryGetProperty("flags", out var flags) && flags.ValueKind == JsonValueKind.Array
+                                    ? flags.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+                                    : new List<string>(),
+                                Driver = String(lap, "driver"),
                             });
                         }
                     }
 
                     file.Timing.Add(timingSource);
+                }
+            }
+
+            if (root.TryGetProperty("events", out var events) && events.ValueKind == JsonValueKind.Array)
+            {
+                // An event without a time or a type is ignored, like an unknown member
+                foreach (var item in events.EnumerateArray())
+                {
+                    var time = Number(item, "time");
+                    var type = String(item, "type");
+                    if (time.HasValue && !string.IsNullOrEmpty(type))
+                        file.Events.Add(new LapVizEvent { Time = time.Value, Type = type!, Label = String(item, "label"), Source = String(item, "source") });
                 }
             }
 
@@ -836,7 +954,41 @@ public sealed partial class LapVizFile
         if (!parent.TryGetProperty("circuit", out var circuit) || circuit.ValueKind != JsonValueKind.Object)
             return null;
 
-        return new LapVizCircuit { Code = String(circuit, "code"), Name = String(circuit, "name"), CountryCode = String(circuit, "countryCode") };
+        var type = String(circuit, "type");
+        return new LapVizCircuit
+        {
+            Code = String(circuit, "code"),
+            Name = String(circuit, "name"),
+            CountryCode = String(circuit, "countryCode"),
+            Type = type == "open" ? CircuitType.Open : type == "closed" ? CircuitType.Closed : null,
+            Lines = Lines(circuit),
+        };
+    }
+
+    /// <summary>The timing lines of a circuit; a line that is not two points of a valid latitude and longitude is ignored.</summary>
+    private static List<CircuitGeoLine> Lines(JsonElement circuit)
+    {
+        var lines = new List<CircuitGeoLine>();
+        if (!circuit.TryGetProperty("lines", out var array) || array.ValueKind != JsonValueKind.Array)
+            return lines;
+
+        foreach (var line in array.EnumerateArray())
+        {
+            if (line.ValueKind != JsonValueKind.Array || line.GetArrayLength() != 2)
+                continue;
+
+            var points = line.EnumerateArray()
+                .Select(x => x.ValueKind == JsonValueKind.Object ? (Latitude: Number(x, "lat"), Longitude: Number(x, "lon")) : (null, null))
+                .ToList();
+            if (points.All(x => x.Latitude is >= -90 and <= 90 && x.Longitude is >= -180 and <= 180))
+            {
+                lines.Add(new CircuitGeoLine(
+                    new GeoCoordinates(points[0].Latitude!.Value, points[0].Longitude!.Value),
+                    new GeoCoordinates(points[1].Latitude!.Value, points[1].Longitude!.Value)));
+            }
+        }
+
+        return lines;
     }
 
     /// <summary>The setup of the session; members of the wrong type or out of their range are ignored.</summary>
@@ -882,5 +1034,7 @@ public sealed partial class LapVizFile
         public int Count { get; set; }
 
         public bool ByteShuffle { get; set; }
+
+        public string? Sha256 { get; set; }
     }
 }
