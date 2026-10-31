@@ -11,7 +11,7 @@ using LapViz.Telemetry.Domain;
 namespace LapViz.Telemetry.IO;
 
 /// <summary>
-/// Reads LapViz files: version 2 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>) and the version 1 delimited text,
+/// Reads LapViz files: versions 2 and 3 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>) and the version 1 delimited text,
 /// plain or in a ".lvz" zip with a single data entry.
 /// Uses a single-pass parser that:
 ///   - waits for "#Fields=" before reading any data,
@@ -44,7 +44,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
 
         if (IsVersion2(_filename))
         {
-            _channels = LapVizFile.Read(_filename).Channels.Select(x => x.Name).ToList();
+            _channels = LapVizFile.Read(_filename).AllChannels.Select(x => x.Name).ToList();
             return _channels;
         }
 
@@ -242,7 +242,7 @@ public class LapVizDataReader : FileSystemTelemetryDataReader, ITelemetryDataRea
         return new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
-    /// <summary>A LapViz version 2 file: a zip archive holding the manifest.</summary>
+    /// <summary>A LapViz version 2 or 3 file: a zip archive holding the manifest.</summary>
     private static bool IsVersion2(string filename)
     {
         try

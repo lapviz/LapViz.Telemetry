@@ -171,7 +171,13 @@ public class LapVizFileTests
     }
 
     [Theory]
-    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "version 3")]
+    [InlineData("""{ "format": "lapviz", "version": 4, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [] }""", "version 4")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "missing groups")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "GPS", "channels": [] } ] }""", "invalid group name")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [] }, { "name": "a", "channels": [] } ] }""", "duplicate group")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [ { "name": "X" } ] }, { "name": "b", "channels": [ { "name": "x" } ] } ] }""", "duplicate channel")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [ { "name": "X", "type": "int16", "scale": 0 } ] } ] }""", "scale")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [ { "name": "X", "type": "int64" } ] } ] }""", "unknown type")]
     [InlineData("""{ "format": "other", "version": 2, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "format")]
     [InlineData("""{ "format": "lapviz", "version": 2, "channels": [] }""", "session")]
     [InlineData("""{ "format": "lapviz", "version": 2, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [ { "name": "A" }, { "name": "a" } ] }""", "duplicate")]

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/lapviz/LapViz.Telemetry/main/docs/lapviz-format.schema.json",
-  "title": "LapViz telemetry format, version 2: manifest (lapviz.json)",
+  "title": "LapViz telemetry format, versions 3 and 2: manifest (lapviz.json)",
   "description": "The manifest of a LapViz file (.lvz). Specification: https://github.com/lapviz/LapViz.Telemetry/blob/main/docs/lapviz-format.md. Unknown members are allowed: readers ignore them.",
   "type": "object",
-  "required": ["format", "version", "session", "channels"],
+  "required": ["format", "version", "session"],
   "properties": {
     "format": { "const": "lapviz" },
-    "version": { "const": 2, "description": "Major version of the specification. A reader refuses a version it does not support." },
+    "version": { "enum": [2, 3], "description": "Major version of the specification. A reader refuses a version it does not support." },
     "generator": {
       "type": "object",
       "description": "Software that wrote the file.",
@@ -17,12 +17,18 @@
       }
     },
     "session": { "$ref": "#/$defs/session" },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Version 3: the groups of samples, each with its own time.",
+      "items": { "$ref": "#/$defs/group" }
+    },
     "channels": {
       "type": "array",
-      "description": "The channels of the samples, in the order of the columns.",
+      "description": "Version 2: the channels of the samples, in the order of the columns.",
       "items": { "$ref": "#/$defs/channel" }
     },
-    "samples": { "$ref": "#/$defs/samples" },
+    "samples": { "$ref": "#/$defs/samples", "description": "Version 2: the samples." },
     "timing": {
       "type": "array",
       "description": "Timing sources and their laps; readers prefer the first source with device true.",
@@ -34,7 +40,26 @@
       "items": { "$ref": "#/$defs/event" }
     }
   },
+  "if": { "properties": { "version": { "const": 2 } } },
+  "then": {
+    "required": ["channels"],
+    "not": { "required": ["groups"] },
+    "properties": {
+      "channels": { "items": { "properties": { "type": { "enum": ["float32", "float64"] } } } },
+      "samples": { "properties": { "file": { "enum": ["samples.bin", "samples.csv"] } } }
+    }
+  },
+  "else": { "required": ["groups"] },
   "$defs": {
+    "group": {
+      "type": "object",
+      "required": ["name", "channels"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "description": "Unique in the file." },
+        "channels": { "type": "array", "items": { "$ref": "#/$defs/channel" } },
+        "samples": { "$ref": "#/$defs/samples" }
+      }
+    },
     "session": {
       "type": "object",
       "required": ["start"],
@@ -114,7 +139,9 @@
       "properties": {
         "name": { "type": "string", "minLength": 1, "description": "Unique in the file, case insensitive." },
         "unit": { "type": "string" },
-        "type": { "enum": ["float32", "float64"], "default": "float64" },
+        "type": { "enum": ["float64", "float32", "int8", "uint8", "int16", "uint16", "int32"], "default": "float64", "description": "Integer types: version 3." },
+        "scale": { "type": "number", "exclusiveMinimum": 0, "default": 1, "description": "Integer types: value = integer * scale + offset." },
+        "offset": { "type": "number", "default": 0 },
         "description": { "type": "string" },
         "rate": { "type": "number", "exclusiveMinimum": 0, "description": "Rate in Hz at which the logger measured the channel." },
         "origin": { "type": "string", "description": "gps, imu, ecu, obd, analog, computed..." },
@@ -125,15 +152,15 @@
       "type": "object",
       "required": ["file", "encoding"],
       "properties": {
-        "file": { "enum": ["samples.bin", "samples.csv"] },
+        "file": { "type": "string", "minLength": 1, "description": "Archive entry: samples/<group>.bin or .csv (version 2: samples.bin or samples.csv)." },
         "encoding": { "enum": ["binary", "csv"] },
         "count": { "type": "integer", "minimum": 0 },
         "byteShuffle": { "type": "boolean", "default": false },
         "sha256": { "type": "string", "pattern": "^[0-9A-Fa-f]{64}$", "description": "SHA-256 of the content of the entry, uncompressed." }
       },
       "if": { "properties": { "encoding": { "const": "binary" } } },
-      "then": { "required": ["count"], "properties": { "file": { "const": "samples.bin" } } },
-      "else": { "properties": { "file": { "const": "samples.csv" } } }
+      "then": { "required": ["count"], "properties": { "file": { "pattern": "\\.bin$" } } },
+      "else": { "properties": { "file": { "pattern": "\\.csv$" } } }
     },
     "timingSource": {
       "type": "object",

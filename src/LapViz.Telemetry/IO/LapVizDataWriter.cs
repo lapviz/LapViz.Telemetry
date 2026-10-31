@@ -14,7 +14,7 @@ namespace LapViz.Telemetry.IO;
 /// LapViz telemetry writer.
 ///
 /// - One-shot writes (<see cref="WriteAll(DeviceSessionData, string, bool)"/>, <see cref="WriteAll(DeviceSessionData)"/>):
-///   LapViz format version 2 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>), unless <c>compressed</c> is false
+///   LapViz format version 2 or 3 (<see cref="LapVizFile"/>, <c>docs/lapviz-format.md</c>), unless <c>compressed</c> is false
 ///   (version 1 plain text, legacy).
 /// - Streaming (filename constructor, <see cref="WriteData"/>, <see cref="WriteEvent"/>): version 1 delimited text,
 ///   compressed by default (zip with one ".lz" entry).
@@ -115,7 +115,7 @@ public class LapVizDataWriter : ITelemetryDataWriter, IDisposable
         }
     }
 
-    /// <summary>One-shot write to an in-memory stream: a LapViz version 2 archive.</summary>
+    /// <summary>One-shot write to an in-memory stream: a LapViz archive (version 2 unless the session needs version 3).</summary>
     public MemoryStream WriteAll(DeviceSessionData session)
     {
         var stream = new MemoryStream();

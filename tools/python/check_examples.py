@@ -2,7 +2,8 @@
 # Copyright (c) 2025-2026 Mengal SRL. MIT license.
 """
 Conformance of the specification kit, run by the CI: the example files are read by the reference reader of this folder
-(independent of the .NET library), the binary and CSV examples hold the same samples, and every manifest (the examples
+(independent of the .NET library), the binary and CSV examples hold the same samples, the version 3 example holds the
+GPS of the binary one and its other groups at their own rate, and every manifest (the examples
 and the one in docs/lapviz-format.md) is valid against docs/lapviz-format.schema.json. Needs: pip install jsonschema.
 """
 
@@ -42,6 +43,17 @@ def main():
     assert binary.timing()["source"] == "LapViz" and binary.events()[0]["type"] == "marker"
     assert len(binary.timing()["circuit"]["lines"]) == 3, "the timing lines of the circuit"
     assert binary.manifest["samples"]["sha256"] and csv.manifest["samples"]["sha256"], "samples checked by their SHA-256"
+
+    multirate = read(ROOT / "docs" / "examples" / "multirate.lvz")
+    assert list(multirate.groups) == ["gps", "engine", "temperatures", "imu"], list(multirate.groups)
+    assert multirate.time == binary.time and multirate.channels["Latitude"] == binary.channels["Latitude"], "the GPS of binary.lvz"
+    engine = multirate.groups["engine"]
+    assert all(rpm == int(rpm) for rpm in engine.channels["RPM"]) and set(engine.channels["Gear"]) == {1, 2}
+    temperatures = multirate.groups["temperatures"].channels["Water Temp"]
+    assert temperatures[0] == 45 and abs(temperatures[-1] - 54.2) < 1e-9, temperatures[-1]
+    rates = {name: round((len(g.time) - 1) / (g.time[-1] - g.time[0])) for name, g in multirate.groups.items()}
+    assert rates == {"gps": 10, "engine": 50, "temperatures": 1, "imu": 100}, rates
+    print(f"multirate.lvz: version 3, groups at {rates} Hz")
 
     laptimes = read(ROOT / "docs" / "examples" / "laptimes-only.lvz")
     assert not laptimes.time and laptimes.best_lap()["duration"] == 60.115
