@@ -12,6 +12,21 @@ public enum LapVizValueType
 
     /// <summary>IEEE 754 single precision (4 bytes).</summary>
     Float32,
+
+    /// <summary>Signed 8-bit integer, times <see cref="LapVizChannel.Scale"/> plus <see cref="LapVizChannel.Offset"/> (version 3).</summary>
+    Int8,
+
+    /// <summary>Unsigned 8-bit integer: a gear, a state (version 3).</summary>
+    UInt8,
+
+    /// <summary>Signed 16-bit integer (version 3).</summary>
+    Int16,
+
+    /// <summary>Unsigned 16-bit integer: an RPM (version 3).</summary>
+    UInt16,
+
+    /// <summary>Signed 32-bit integer (version 3).</summary>
+    Int32,
 }
 
 /// <summary>How the samples are stored in the archive.</summary>
@@ -162,6 +177,15 @@ public sealed class LapVizChannel
 
     /// <summary>Encoding of the values in the binary samples.</summary>
     public LapVizValueType Type { get; set; }
+
+    /// <summary>Integer types: the value is the stored integer times the scale, plus <see cref="Offset"/>. Strictly positive.</summary>
+    public double Scale { get; set; } = 1;
+
+    /// <summary>Integer types: added to the stored integer times <see cref="Scale"/>.</summary>
+    public double Offset { get; set; }
+
+    /// <summary>The values are stored as integers (version 3).</summary>
+    public bool IsInteger => Type != LapVizValueType.Float32 && Type != LapVizValueType.Float64;
 
     public string? Description { get; set; }
 

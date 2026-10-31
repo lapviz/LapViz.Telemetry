@@ -41,7 +41,7 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
   (framing, escaping, CRC, passing and status records; not yet checked against a real decoder).
 
 * 📦 **Open file format**  
-  The LapViz format (`.lvz`) stores a session: full resolution samples with their units, laps and sectors of
+  The LapViz format (`.lvz`) stores a session: every channel at its own rate and full resolution, with its units, laps and sectors of
   several timing sources, driver, vehicle, device, circuit, setup sheet and notes. It is open and documented in
   [docs/lapviz-format.md](docs/lapviz-format.md), with a [JSON Schema](docs/lapviz-format.schema.json) of its manifest,
   [example files](docs/examples) and a [reader in plain Python](tools/python/lvz.py); `LapVizFile` reads and writes it,

@@ -111,6 +111,80 @@ public class LapVizExamplesTests
         return file;
     }
 
+    /// <summary>
+    /// The session of the examples in version 3: the GPS of <c>binary.lvz</c> (10 Hz), the engine at 50 Hz, the water
+    /// temperature at 1 Hz and the accelerometer at 100 Hz, stored as integers.
+    /// </summary>
+    internal static LapVizFile MultiRateExample()
+    {
+        var file = Example(withSamples: false);
+        var gps = Example(withSamples: true);
+        file.MainGroup.Name = "gps";
+        file.SetTime(gps.Time);
+        foreach (var name in new[] { "Latitude", "Longitude", "GPS Speed" })
+        {
+            var index = gps.Channels.ToList().FindIndex(x => x.Name == name);
+            file.AddChannel(gps.Channels[index], gps.Values(index));
+        }
+
+        var duration = gps.Time[gps.Count - 1] / 1e6;
+        LapVizSampleGroup Group(string name, int rate)
+        {
+            var group = file.AddGroup(name);
+            group.SetTime(Enumerable.Range(0, (int)(duration * rate) + 1).Select(i => i * (1_000_000L / rate)).ToArray());
+            return group;
+        }
+
+        double[] Values(LapVizSampleGroup group, Func<double, double> value) => group.Time.Select(t => value(t / 1e6)).ToArray();
+
+        var engine = Group("engine", 50);
+        engine.AddChannel(new LapVizChannel("RPM", "rpm", LapVizValueType.UInt16) { Rate = 50, Origin = "ecu" }, Values(engine, t => Math.Round(11000 + (3000 * Math.Cos(2 * Angle(t))))));
+        engine.AddChannel(new LapVizChannel("Gear", null, LapVizValueType.UInt8) { Origin = "computed", Interpolation = LapVizInterpolation.Step }, Values(engine, t => Math.Cos(2 * Angle(t)) > 0 ? 2.0 : 1.0));
+
+        var temperatures = Group("temperatures", 1);
+        temperatures.AddChannel(new LapVizChannel("Water Temp", "°C", LapVizValueType.Int16) { Scale = 0.1, Rate = 1, Origin = "analog" }, Values(temperatures, t => Math.Round(45 + (10 * (1 - Math.Exp(-t / 60))), 1)));
+
+        var imu = Group("imu", 100);
+        imu.AddChannel(new LapVizChannel("AccelerometerX", "g", LapVizValueType.Int16) { Scale = 0.001, Rate = 100, Origin = "imu" }, Values(imu, t => Math.Round(0.4 * Math.Sin(2 * Angle(t)), 3)));
+        imu.AddChannel(new LapVizChannel("AccelerometerY", "g", LapVizValueType.Int16) { Scale = 0.001, Rate = 100, Origin = "imu" }, Values(imu, t => Math.Round(1.1 * Math.Cos(2 * Angle(t)), 3)));
+        return file;
+    }
+
+    [Fact]
+    public void TheVersion3ExampleIsReadWithItsValues()
+    {
+        var path = Path.Combine(ExamplesFolder(), "multirate.lvz");
+        var expected = MultiRateExample();
+        if (Environment.GetEnvironmentVariable("LAPVIZ_WRITE_EXAMPLES") == "1")
+        {
+            expected.Write(path);
+            using var archive = ZipFile.OpenRead(path);
+            using var manifest = archive.GetEntry(LapVizFile.ManifestEntry)!.Open();
+            using var copy = File.Create(Path.ChangeExtension(path, ".lapviz.json"));
+            manifest.CopyTo(copy);
+        }
+
+        var read = LapVizFile.Read(path);
+
+        Assert.Equal(new[] { "gps", "engine", "temperatures", "imu" }, read.Groups.Select(x => x.Name));
+        Assert.Equal(new[] { 1518, 7585, 152, 15170 }, read.Groups.Select(x => x.Count));
+        Assert.Equal(Example(withSamples: true).Values(0), read.Values(0)); // The positions of binary.lvz
+        for (int g = 1; g < expected.Groups.Count; g++)
+        {
+            Assert.Equal(expected.Groups[g].Time, read.Groups[g].Time);
+            for (int k = 0; k < expected.Groups[g].Channels.Count; k++)
+            {
+                var values = read.Groups[g].Values(k);
+                Assert.All(expected.Groups[g].Values(k).Select((x, i) => Math.Abs(x - values[i])), x => Assert.True(x < 1e-9));
+            }
+        }
+
+        using var zip = ZipFile.OpenRead(path);
+        using var inside = new StreamReader(zip.GetEntry(LapVizFile.ManifestEntry)!.Open());
+        Assert.Equal(JsonDocument.Parse(inside.ReadToEnd()).RootElement.ToString(),
+            JsonDocument.Parse(File.ReadAllText(Path.ChangeExtension(path, ".lapviz.json"))).RootElement.ToString());
+    }
+
     public static IEnumerable<object[]> Examples() => new[]
     {
         new object[] { "binary.lvz", LapVizSampleEncoding.Binary, true, true },

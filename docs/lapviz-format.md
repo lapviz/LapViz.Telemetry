@@ -1,7 +1,8 @@
-# LapViz telemetry format, version 2
+# LapViz telemetry format, version 3
 
 The LapViz format (`.lvz`) stores a motorsport session recorded by a data logger, a lap timer or a phone:
-the samples of its channels (GPS position, speed, RPM, temperatures, accelerations...), the laps and sectors
+the samples of its channels (GPS position, speed, RPM, temperatures, accelerations...), each at the rate it was
+measured, the laps and sectors
 measured by one or several timing sources, and a description of the session (driver, vehicle, device, circuit,
 setup of the vehicle, notes).
 
@@ -12,8 +13,9 @@ is the open source [LapViz.Telemetry](https://github.com/lapviz/lapviz.telemetry
 Design goals:
 
 * **Simple to implement** in any language: a ZIP archive, a JSON manifest, little endian numbers or CSV.
-* **Lossless and complete**: full resolution samples, units, several timing sources, free metadata.
-* **Efficient for analysis**: samples in columns, read in one pass, compact once compressed.
+* **Lossless and complete**: every channel at its own rate and resolution, units, several timing sources, free
+  metadata.
+* **Efficient for analysis**: samples in columns, read in one pass, compact once compressed (integers with a scale).
 * **Streamable**: a logger can append CSV rows while it records.
 * **Extensible**: unknown members and archive entries are ignored by readers.
 
@@ -24,8 +26,8 @@ To implement the format:
 | | |
 |---|---|
 | [`lapviz-format.schema.json`](lapviz-format.schema.json) | JSON Schema (2020-12) of the manifest: validate the `lapviz.json` you write. |
-| [`examples/`](examples) | Example files: `binary.lvz` (byte-shuffled binary samples), `csv.lvz` (the same samples in CSV), `laptimes-only.lvz` (laps without samples), each with its manifest next to it. They use every member of this document. |
-| [`tools/python/lvz.py`](../tools/python/lvz.py) | A reader in plain Python (no dependency, about 150 lines), written from this document only: a second implementation to compare yours with. |
+| [`examples/`](examples) | Example files: `binary.lvz` (byte-shuffled binary samples), `csv.lvz` (the same samples in CSV), `laptimes-only.lvz` (laps without samples), all three in version 2, and `multirate.lvz` (version 3: GPS at 10 Hz, engine at 50 Hz, temperature at 1 Hz, accelerometer at 100 Hz, as integers), each with its manifest next to it. They use every member of this document. |
+| [`tools/python/lvz.py`](../tools/python/lvz.py) | A reader in plain Python (no dependency, about 200 lines), written from this document only: a second implementation to compare yours with. |
 
 The CI checks that they agree: the examples are read by the .NET library and by the Python reader, the binary and
 CSV examples hold the same samples, and every manifest, the one below included, is valid against the schema.
@@ -39,7 +41,7 @@ The media type is `application/vnd.lapviz.telemetry+zip`.
 | Entry | Required | Content |
 |---|---|---|
 | `lapviz.json` | yes | The manifest (section 2). |
-| `samples.bin` or `samples.csv` | no | The samples, binary (section 3) or CSV (section 4), as declared in the manifest. A session without samples (lap times only) has none. |
+| `samples/<group>.bin` or `samples/<group>.csv` | no | The samples of each group (2.3), binary (section 3) or CSV (section 4), as declared in the manifest. A session without samples (lap times only) has none. |
 | any other entry | no | Extensions (video, setup sheet...). Names SHOULD be prefixed by the name of the producer (`acme/setup.json`). Readers MUST ignore the entries they do not know. |
 
 ## 2. Manifest
@@ -50,7 +52,7 @@ members; writers SHOULD omit the members that have no value rather than write `n
 ```json
 {
   "format": "lapviz",
-  "version": 2,
+  "version": 3,
   "generator": { "name": "LapViz Laptimer", "version": "26.10.3" },
   "session": {
     "start": "2026-09-12T10:00:00.000+02:00",
@@ -69,17 +71,32 @@ members; writers SHOULD omit the members that have no value rather than write `n
     "notes": "Oversteer out of turn 3",
     "properties": { "weather": "dry" }
   },
-  "channels": [
-    { "name": "Latitude", "unit": "deg", "type": "float64", "rate": 10, "origin": "gps" },
-    { "name": "Longitude", "unit": "deg", "type": "float64", "rate": 10, "origin": "gps" },
-    { "name": "GPS Speed", "unit": "km/h", "type": "float32", "rate": 10, "origin": "gps" },
-    { "name": "RPM", "unit": "rpm", "type": "float32", "rate": 20, "origin": "ecu" },
-    { "name": "Gear", "type": "float32", "origin": "computed", "interpolation": "step" }
+  "groups": [
+    {
+      "name": "gps",
+      "channels": [
+        { "name": "Latitude", "unit": "deg", "type": "float64", "rate": 10, "origin": "gps" },
+        { "name": "Longitude", "unit": "deg", "type": "float64", "rate": 10, "origin": "gps" },
+        { "name": "GPS Speed", "unit": "km/h", "type": "float32", "rate": 10, "origin": "gps" }
+      ],
+      "samples": {
+        "file": "samples/gps.bin", "encoding": "binary", "count": 5888, "byteShuffle": true,
+        "sha256": "4f0c6b1e9a2d7c3b8e5f1a6d9c2b7e4a1f8d3c6b9e2a5d8c1f4b7e0a3d6c9b2e"
+      }
+    },
+    {
+      "name": "engine",
+      "channels": [
+        { "name": "RPM", "unit": "rpm", "type": "uint16", "rate": 50, "origin": "ecu" },
+        { "name": "Water Temp", "unit": "°C", "type": "int16", "scale": 0.1, "rate": 50, "origin": "analog" },
+        { "name": "Gear", "type": "uint8", "origin": "computed", "interpolation": "step" }
+      ],
+      "samples": {
+        "file": "samples/engine.bin", "encoding": "binary", "count": 29440, "byteShuffle": true,
+        "sha256": "9d2e5b8c1f4a7d0e3b6c9f2a5d8e1b4c7f0a3d6e9b2c5f8a1d4e7b0c3f6a9d2e"
+      }
+    }
   ],
-  "samples": {
-    "file": "samples.bin", "encoding": "binary", "count": 5888, "byteShuffle": true,
-    "sha256": "4f0c6b1e9a2d7c3b8e5f1a6d9c2b7e4a1f8d3c6b9e2a5d8c1f4b7e0a3d6c9b2e"
-  },
   "timing": [
     {
       "source": "AiM",
@@ -114,11 +131,10 @@ members; writers SHOULD omit the members that have no value rather than write `n
 | Member | Type | Required | Description |
 |---|---|---|---|
 | `format` | string | yes | Always `"lapviz"`. |
-| `version` | integer | yes | Major version of this specification: `2`. A reader MUST refuse a version it does not support. Compatible additions do not change the version. |
+| `version` | integer | yes | Major version of this specification: `3`. A reader MUST refuse a version it does not support. Compatible additions do not change the version. Version 2 (section 6) is still valid. |
 | `generator` | object | no | Software that wrote the file: `name`, `version` (strings). |
 | `session` | object | yes | Description of the session (2.1). |
-| `channels` | array | yes | The channels of the samples, in the order of the columns (2.2). May be empty. |
-| `samples` | object | no | Where and how the samples are stored (2.3). Absent: no samples. |
+| `groups` | array | yes | The groups of samples, each with its own time (2.3). At least one. |
 | `timing` | array | no | Timing sources and their laps (2.4). |
 | `events` | array | no | Instants of the session: markers, beacons, flags (2.5). |
 
@@ -183,21 +199,41 @@ positions, without knowing the circuit. Writers SHOULD write the lines of the ci
 
 | Member | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Name of the channel, unique in the file (case insensitive), not empty. |
+| `name` | string | yes | Name of the channel, unique in the file, all groups together (case insensitive), not empty. |
 | `unit` | string | no | Unit (see 5.2). |
-| `type` | string | no | Binary encoding: `"float32"` or `"float64"` (default `"float64"`). Ignored by the CSV encoding. |
+| `type` | string | no | Binary encoding (3.1): `"float64"` (default), `"float32"`, `"int8"`, `"uint8"`, `"int16"`, `"uint16"` or `"int32"`. Ignored by the CSV encoding. |
+| `scale` | number | no | Integer types: the value is the stored integer × `scale` + `offset`. Strictly positive, default `1`. Ignored by the float types. |
+| `offset` | number | no | Integer types: see `scale`. Default `0`. |
 | `description` | string | no | Free text. |
-| `rate` | number | no | Rate in Hz at which the logger measured the channel, strictly positive. It may differ from the rate of the samples: a 50 Hz RPM stored at the 10 Hz of the GPS, or a 1 Hz heart rate repeated at 25 Hz. |
+| `rate` | number | no | Rate in Hz at which the logger measured the channel, strictly positive. It may differ from the rate of the samples of its group: a 1 Hz heart rate a logger repeats at 25 Hz. |
 | `origin` | string | no | What measured the channel: `"gps"`, `"imu"` (accelerometer, gyroscope of the logger), `"ecu"` (the engine or the vehicle, e.g. over CAN), `"obd"`, `"analog"` (a sensor wired to the logger), `"computed"` (by the logger or a software, from other channels). Absent: unknown. A wheel speed and a GPS speed are told apart by their origin, not by a guess on their name. |
 | `interpolation` | string | no | `"linear"` (default): a continuous quantity, a reader MAY interpolate between two samples. `"step"`: a discrete quantity (gear, state, flag), a value holds until the next one; a reader MUST NOT interpolate it. |
 
-The time is not a channel: it is the first column of the samples.
+The time is not a channel: it is the first column of the samples of each group.
 
-### 2.3 Samples
+### 2.3 Groups
+
+A logger measures its channels at different rates: the GPS at 10 or 25 Hz, the engine at 50 or 100 Hz, the
+accelerometer at 100 Hz or more, a temperature at 1 Hz. A group holds the channels measured at the same instants,
+with their own time; each channel is stored at its own rate, without being resampled.
 
 | Member | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | yes | Name of the archive entry: `samples.bin` or `samples.csv`. |
+| `name` | string | yes | Name of the group, unique in the file: 1 to 64 lowercase letters, digits, `-` and `_`, starting with a letter or a digit (`"gps"`, `"engine"`, `"imu"`). |
+| `channels` | array | yes | The channels of the group, in the order of the columns (2.2). May be empty. |
+| `samples` | object | no | Where and how the samples of the group are stored (2.3.1). Absent: no samples. |
+
+The first group SHOULD hold the positions (`Latitude`, `Longitude`). A reader that needs one time for all the
+channels (to draw them together, or to convert the file to a format with one time) SHOULD take the time of the
+group of `Latitude` and bring the other channels to it: a `"step"` channel takes its last value at or before the
+instant, a `"linear"` one the interpolation between its two samples around the instant; both are missing before the
+first sample of their group, after its last one, and when one of the samples around is missing.
+
+#### 2.3.1 Samples
+
+| Member | Type | Required | Description |
+|---|---|---|---|
+| `file` | string | yes | Name of the archive entry: writers SHOULD use `samples/<group name>.bin` or `samples/<group name>.csv`. |
 | `encoding` | string | yes | `"binary"` (section 3) or `"csv"` (section 4). |
 | `count` | integer | binary | Number of samples. Required for the binary encoding, informative for CSV. |
 | `byteShuffle` | boolean | no | Binary encoding: the bytes of each column are shuffled (3.2). Default `false`. |
@@ -262,37 +298,53 @@ Readers MUST ignore an event without `time` or `type`, and SHOULD keep the event
 
 ### 3.1 Layout
 
-`samples.bin` holds `count` samples in columns, one after the other, without header nor padding, all little endian:
+The binary entry of a group holds `count` samples in columns, one after the other, without header nor padding, all
+little endian:
 
 1. the time: `count` signed 64-bit integers, microseconds since `session.start`, strictly increasing;
-2. then, for each channel in the order of `channels`, `count` IEEE 754 numbers of its `type`
-   (4 bytes for `float32`, 8 bytes for `float64`).
+2. then, for each channel in the order of the `channels` of the group, `count` numbers of its `type`.
 
-A missing value is a NaN (any NaN). The length of the entry is therefore exactly
-`count × (8 + Σ size of the channels)` bytes.
+| Type | Size | Values | Missing value |
+|---|---|---|---|
+| `float64` | 8 bytes | IEEE 754 double precision | NaN (any NaN) |
+| `float32` | 4 bytes | IEEE 754 single precision | NaN (any NaN) |
+| `int8` | 1 byte | signed, -127 to 127 | -128 |
+| `uint8` | 1 byte | unsigned, 0 to 254 | 255 |
+| `int16` | 2 bytes | signed, -32767 to 32767 | -32768 |
+| `uint16` | 2 bytes | unsigned, 0 to 65534 | 65535 |
+| `int32` | 4 bytes | signed, -2147483647 to 2147483647 | -2147483648 |
+
+The value of an integer is the integer × `scale` + `offset` (2.2): an `int16` with a `scale` of `0.1` holds a
+temperature from -3276.7 to 3276.7 °C to the tenth of a degree, in 2 bytes instead of 8. A writer stores
+round((value - `offset`) / `scale`) and MUST NOT write a value out of the range of the type: it chooses another type,
+scale or offset. The length of the entry is exactly `count × (8 + Σ size of the channels)` bytes.
 
 ### 3.2 Byte shuffle
 
 When `byteShuffle` is true, the bytes of each column (the time included) are stored transposed: for a column of
 `n` values of `s` bytes, the byte `j` (`0 ≤ j < s`, little endian order) of the value `i` is at offset `j × n + i`
 of the column. Neighbouring samples share their high-order bytes: grouped together, they compress much better
-with deflate. The layout of 3.1 (column after column) is unchanged.
+with deflate. The layout of 3.1 (column after column) is unchanged; a column of 1-byte values is the same shuffled
+or not.
 
 Writers SHOULD shuffle and deflate the binary samples. They SHOULD use `float64` for the positions
-(a `float32` latitude is only precise to about a meter) and MAY use `float32` for the other channels.
+(a `float32` latitude is only precise to about a meter) and MAY use `float32` or an integer type with a scale (the
+resolution of the sensor, e.g. `0.001` g for an accelerometer) for the other channels.
 
 ## 4. CSV samples
 
-`samples.csv` is UTF-8 text, RFC 4180: comma separator, CRLF or LF line ends, fields with a comma, a quote or a
-line end between double quotes.
+The CSV entry of a group is UTF-8 text, RFC 4180: comma separator, CRLF or LF line ends, fields with a comma, a quote
+or a line end between double quotes.
 
-* The first line is the header: `time`, then the name of each channel, in the order of `channels`.
+* The first line is the header: `time`, then the name of each channel, in the order of the `channels` of the group.
 * Each following line is a sample: the time in seconds since `session.start` (decimal point, up to 6 decimals),
-  then the value of each channel, decimal point, no thousands separator, scientific notation allowed.
+  then the value of each channel, decimal point, no thousands separator, scientific notation allowed. The values
+  are the values, never the stored integers: `type`, `scale` and `offset` do not apply.
 * An empty field is a missing value.
 * Times are strictly increasing.
 
-A logger can append lines while it records and write `lapviz.json` (with the laps) when the session ends.
+A logger can append lines to each group while it records and write `lapviz.json` (with the laps) when the session
+ends.
 
 ## 5. Conventions
 
@@ -338,13 +390,29 @@ A channel with a name of 5.1 SHOULD be in the unit of the table: a writer conver
 rather than keep the unit of the logger, so that the files of different loggers compare without conversion. A reader
 that finds a channel of 5.1 in another unit SHOULD convert it, or treat it as an unknown channel.
 
-## 6. Version 1 (legacy)
+## 6. Earlier versions
 
-Version 1 files have the same `.lvz` extension. A reader recognizes the version:
+Every version has the `.lvz` extension. A reader recognizes the version:
 
-* a ZIP archive with a `lapviz.json` entry: version 2;
-* a ZIP archive without it: version 1, the first entry is the text below;
+* a ZIP archive with a `lapviz.json` entry: the `version` of the manifest, 2 or 3;
+* a ZIP archive without it: version 1, the first entry is the text of 6.2;
 * a text file whose first line is `#Format=LapViz Delimited Data`: version 1.
+
+### 6.1 Version 2
+
+Version 2 is version 3 with a single group and float channels only. The manifest has `"version": 2` and no `groups`:
+the `channels` (2.2, types `float32` and `float64` only) and the `samples` (2.3.1) of its group are members of the
+manifest itself, and the samples are in `samples.bin` or `samples.csv`.
+
+```
+{ "format": "lapviz", "version": 2, "session": { ... }, "channels": [ ... ], "samples": { "file": "samples.bin", ... } }
+```
+
+Readers of version 3 MUST read version 2 (one group, named `main` when an application needs a name). Writers SHOULD
+write version 2 when the session fits in it, one group of float channels: the readers of version 2 then read it.
+The reference implementation does.
+
+### 6.2 Version 1 (legacy)
 
 Version 1 is a line oriented text:
 
@@ -361,13 +429,15 @@ Version 1 is a line oriented text:
 * `#Event=`: Unix time in milliseconds of the crossing, type (`Lap` or `Sector`), lap number, sector number,
   lap or sector time in .NET ticks (100 ns).
 
-Readers SHOULD keep reading version 1; writers SHOULD write version 2.
+Readers SHOULD keep reading version 1; writers MUST NOT write it.
 
 ## 7. Changes
 
 Compatible additions do not change the version: a reader written before them ignores the new members, as it ignores
 every unknown member, and reads the rest of the file as before.
 
+* **2026-10-31**: version 3: groups of samples with their own time (2.3), integer types with a scale and an offset
+  (3.1). Version 2 is version 3 with one group (6.1).
 * **2026-10-30**: `session.clock`; the `type` and `lines` of a circuit (2.1.2); the `rate`, `origin` and `interpolation`
   of a channel; `samples.sha256`; `declared` timing sources; the `flags` and `driver` of a lap; `events` (2.5); more
   channel names (5.1); units of the channel names (5.2).

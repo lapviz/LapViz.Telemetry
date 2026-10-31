@@ -1,0 +1,245 @@
+{
+  "format": "lapviz",
+  "version": 3,
+  "generator": {
+    "name": "LapViz.Telemetry examples",
+    "version": "2"
+  },
+  "session": {
+    "start": "2026-09-12T10:00:00.0000000\u002B02:00",
+    "clock": "gps",
+    "driver": "Alex Example",
+    "vehicle": "Kart, 125 cc",
+    "device": {
+      "brand": "LapViz",
+      "model": "Example logger",
+      "serial": "0001"
+    },
+    "circuit": {
+      "code": "example-oval",
+      "name": "Example oval (fictitious)",
+      "countryCode": "BE"
+    },
+    "description": "Example file of the LapViz format specification",
+    "setup": {
+      "tyres": "Slick",
+      "tyreCondition": "scrubbed",
+      "tyreLaps": 12,
+      "pressureFront": 0.7,
+      "pressureRear": 0.75,
+      "gearingFront": 11,
+      "gearingRear": 78,
+      "feeling": 4
+    },
+    "notes": "Generated: the positions draw an oval, the speed and the RPM follow it.",
+    "properties": {
+      "weather": "dry"
+    }
+  },
+  "groups": [
+    {
+      "name": "gps",
+      "channels": [
+        {
+          "name": "Latitude",
+          "unit": "deg",
+          "type": "float64",
+          "rate": 10,
+          "origin": "gps"
+        },
+        {
+          "name": "Longitude",
+          "unit": "deg",
+          "type": "float64",
+          "rate": 10,
+          "origin": "gps"
+        },
+        {
+          "name": "GPS Speed",
+          "unit": "km/h",
+          "type": "float32",
+          "rate": 10,
+          "origin": "gps"
+        }
+      ],
+      "samples": {
+        "file": "samples/gps.bin",
+        "encoding": "binary",
+        "count": 1518,
+        "byteShuffle": true,
+        "sha256": "93d07d39b59c453bdc9ac9a41d6fbf92eb55a34a04af15c3257039799c74dab7"
+      }
+    },
+    {
+      "name": "engine",
+      "channels": [
+        {
+          "name": "RPM",
+          "unit": "rpm",
+          "type": "uint16",
+          "rate": 50,
+          "origin": "ecu"
+        },
+        {
+          "name": "Gear",
+          "type": "uint8",
+          "origin": "computed",
+          "interpolation": "step"
+        }
+      ],
+      "samples": {
+        "file": "samples/engine.bin",
+        "encoding": "binary",
+        "count": 7585,
+        "byteShuffle": true,
+        "sha256": "43a51c036ed5afe64ce685a39704ab49d122b01f9eed29a15c4846b224bbec47"
+      }
+    },
+    {
+      "name": "temperatures",
+      "channels": [
+        {
+          "name": "Water Temp",
+          "unit": "\u00B0C",
+          "type": "int16",
+          "scale": 0.1,
+          "rate": 1,
+          "origin": "analog"
+        }
+      ],
+      "samples": {
+        "file": "samples/temperatures.bin",
+        "encoding": "binary",
+        "count": 152,
+        "byteShuffle": true,
+        "sha256": "f96cf1fd355a8455c0ab8caa2c8d4e60b935ffdf5a82231472be25938bd93b70"
+      }
+    },
+    {
+      "name": "imu",
+      "channels": [
+        {
+          "name": "AccelerometerX",
+          "unit": "g",
+          "type": "int16",
+          "scale": 0.001,
+          "rate": 100,
+          "origin": "imu"
+        },
+        {
+          "name": "AccelerometerY",
+          "unit": "g",
+          "type": "int16",
+          "scale": 0.001,
+          "rate": 100,
+          "origin": "imu"
+        }
+      ],
+      "samples": {
+        "file": "samples/imu.bin",
+        "encoding": "binary",
+        "count": 15170,
+        "byteShuffle": true,
+        "sha256": "5fc40d444c47c3e7d23e41dd70acfd9b60da35375031eace6bd0a5f2a0c2e747"
+      }
+    }
+  ],
+  "timing": [
+    {
+      "source": "LapViz",
+      "device": true,
+      "circuit": {
+        "code": "example-oval",
+        "type": "closed",
+        "lines": [
+          [
+            {
+              "lat": 50.5008823,
+              "lon": 5.499198
+            },
+            {
+              "lat": 50.5014115,
+              "lon": 5.499037
+            }
+          ],
+          [
+            {
+              "lat": 50.4993359,
+              "lon": 5.4982206
+            },
+            {
+              "lat": 50.4988646,
+              "lon": 5.4978094
+            }
+          ],
+          [
+            {
+              "lat": 50.4998649,
+              "lon": 5.5025467
+            },
+            {
+              "lat": 50.4997199,
+              "lon": 5.5033628
+            }
+          ]
+        ]
+      },
+      "laps": [
+        {
+          "number": 0,
+          "start": 0,
+          "duration": 18,
+          "flags": [
+            "pitOut"
+          ]
+        },
+        {
+          "number": 1,
+          "start": 18,
+          "duration": 61.24,
+          "sectors": [
+            20.413,
+            20.413,
+            20.414
+          ]
+        },
+        {
+          "number": 2,
+          "start": 79.24,
+          "duration": 60.115,
+          "sectors": [
+            20.038,
+            20.038,
+            20.039
+          ]
+        },
+        {
+          "number": 3,
+          "start": 139.355,
+          "flags": [
+            "pitIn"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "Results sheet",
+      "declared": true,
+      "laps": [
+        {
+          "number": 2,
+          "start": 79.24,
+          "duration": 60.12
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "time": 95.2,
+      "type": "marker",
+      "label": "Kerb too high in turn 2",
+      "source": "driver"
+    }
+  ]
+}

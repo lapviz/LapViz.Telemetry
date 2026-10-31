@@ -12,12 +12,30 @@ public sealed partial class LapVizFile
     private const long TicksPerMicrosecond = 10;
 
     /// <summary>
-    /// The session for the writers of the other formats: one <see cref="GeoTelemetryData"/> per sample (position, speed,
-    /// altitude and accuracy taken from the common channels), the laps and sectors of <see cref="PreferredTiming"/> as events,
-    /// the other timing sources in <see cref="DeviceSessionData.TimingData"/>.
+    /// The session for the writers of the other formats: one <see cref="GeoTelemetryData"/> per sample of the group of the
+    /// positions (position, speed, altitude and accuracy taken from the common channels), the laps and sectors of
+    /// <see cref="PreferredTiming"/> as events, the other timing sources in <see cref="DeviceSessionData.TimingData"/>.
+    /// The channels of the other groups are brought to the time of that group (<see cref="Resample"/>).
     /// </summary>
     public DeviceSessionData ToDeviceSessionData()
     {
+        var timeBase = TimeBase();
+        var columns = AllChannels
+            .Select(channel =>
+            {
+                var group = FindChannel(channel.Name)!;
+                var values = group.Values(group.IndexOf(channel.Name));
+                return (channel.Name, Values: ReferenceEquals(group, timeBase) ? values : Resample(group.Time, values, timeBase.Time, channel.Interpolation));
+            })
+            .ToList();
+
+        bool TryGetColumn(string name, out double[] values)
+        {
+            var column = columns.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
+            values = column.Values ?? Array.Empty<double>();
+            return column.Name != null;
+        }
+
         var data = new DeviceSessionData(Session.Device?.Serial ?? string.Empty, string.Empty)
         {
             DriverDisplayName = Session.Driver,
@@ -28,21 +46,21 @@ public sealed partial class LapVizFile
             Setup = Session.Setup,
             Notes = Session.Notes,
             CircuitCode = Session.Circuit?.Code ?? PreferredTiming?.Circuit?.Code,
-            TelemetryChannels = _channels.Select(x => x.Name).ToList(),
+            TelemetryChannels = columns.Select(x => x.Name).ToList(),
         };
 
-        var hasLatitude = TryGetValues("Latitude", out var latitude);
-        var hasLongitude = TryGetValues("Longitude", out var longitude);
-        var hasAltitude = TryGetValues("Altitude", out var altitude);
-        var hasSpeed = TryGetValues("GPS Speed", out var speed) || TryGetValues("Speed", out speed);
-        var hasAccuracy = TryGetValues("GPS Accuracy", out var accuracy) || TryGetValues("Accuracy", out accuracy);
+        var hasLatitude = TryGetColumn("Latitude", out var latitude);
+        var hasLongitude = TryGetColumn("Longitude", out var longitude);
+        var hasAltitude = TryGetColumn("Altitude", out var altitude);
+        var hasSpeed = TryGetColumn("GPS Speed", out var speed) || TryGetColumn("Speed", out speed);
+        var hasAccuracy = TryGetColumn("GPS Accuracy", out var accuracy) || TryGetColumn("Accuracy", out accuracy);
         double maxSpeed = 0;
-        for (int i = 0; i < Count; i++)
+        for (int i = 0; i < timeBase.Count; i++)
         {
             var sample = new GeoTelemetryData
             {
-                Timestamp = TimestampAt(i),
-                Data = _values.Select(x => double.IsNaN(x[i]) ? (double?)null : x[i]).ToList(),
+                Timestamp = Session.Start.AddTicks(timeBase.Time[i] * TicksPerMicrosecond),
+                Data = columns.Select(x => double.IsNaN(x.Values[i]) ? (double?)null : x.Values[i]).ToList(),
             };
 
             if (hasLatitude && !double.IsNaN(latitude[i]))
@@ -125,13 +143,13 @@ public sealed partial class LapVizFile
             },
         };
 
-        file.Time = samples.Select(x => (x.Timestamp - start).Ticks / TicksPerMicrosecond).ToArray();
+        file.SetTime(samples.Select(x => (x.Timestamp - start).Ticks / TicksPerMicrosecond).ToArray());
 
         var names = data.TelemetryChannels ?? new List<string>();
         for (int k = 0; k < names.Count; k++)
         {
             var name = names[k];
-            if (string.IsNullOrWhiteSpace(name) || file.IndexOf(name) >= 0)
+            if (string.IsNullOrWhiteSpace(name) || file.FindChannel(name) != null)
                 continue;
 
             var values = new double[samples.Count];
@@ -145,7 +163,7 @@ public sealed partial class LapVizFile
         }
 
         // GPS samples without position columns: the position, speed, altitude and accuracy of the fixes become channels
-        if (samples.Count > 0 && file.IndexOf("Latitude") < 0 && file.IndexOf("Longitude") < 0 && samples.All(x => x is GeoTelemetryData))
+        if (samples.Count > 0 && file.FindChannel("Latitude") == null && file.FindChannel("Longitude") == null && samples.All(x => x is GeoTelemetryData))
         {
             var fixes = samples.Cast<GeoTelemetryData>().ToList();
             file.AddChannel(new LapVizChannel("Latitude", "deg"), fixes.Select(x => Position(x.Latitude, x.Longitude, true)).ToArray());
@@ -275,6 +293,53 @@ public sealed partial class LapVizFile
         }
     }
 
+    /// <summary>
+    /// The values of a channel at the instants <paramref name="target"/>: a <see cref="LapVizInterpolation.Step"/> channel
+    /// holds its last value, a linear one is interpolated between the two samples around the instant (NaN when one of them
+    /// is missing). NaN before the first sample and after the last one.
+    /// </summary>
+    public static double[] Resample(long[] time, double[] values, long[] target, LapVizInterpolation interpolation)
+    {
+        if (time == null)
+            throw new ArgumentNullException(nameof(time));
+        if (values == null)
+            throw new ArgumentNullException(nameof(values));
+        if (target == null)
+            throw new ArgumentNullException(nameof(target));
+
+        var result = new double[target.Length];
+        int j = 0;
+        for (int i = 0; i < target.Length; i++)
+        {
+            // Both times increase: j is the last sample at or before the instant
+            while (j + 1 < time.Length && time[j + 1] <= target[i])
+                j++;
+
+            if (time.Length == 0 || target[i] < time[0] || target[i] > time[time.Length - 1])
+            {
+                result[i] = double.NaN;
+            }
+            else if (time[j] == target[i] || interpolation == LapVizInterpolation.Step)
+            {
+                result[i] = values[j];
+            }
+            else
+            {
+                var ratio = (double)(target[i] - time[j]) / (time[j + 1] - time[j]);
+                result[i] = values[j] + ((values[j + 1] - values[j]) * ratio);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>The group whose time the other formats get: the group of the positions, else the first group with samples.</summary>
+    private LapVizSampleGroup TimeBase()
+    {
+        var positions = FindChannel("Latitude");
+        return positions is { Count: > 0 } ? positions : Groups.FirstOrDefault(x => x.Count > 0) ?? MainGroup;
+    }
+
     /// <summary>Float64 for the positions and whenever a value is not exact in float32: the conversion is lossless.</summary>
     private static LapVizValueType ChooseType(string name, double[] values)
     {
@@ -316,7 +381,7 @@ public sealed partial class LapVizFile
     /// <summary>A channel from a value of the fixes, when it is not already a column and at least one fix has it.</summary>
     private static void AddFixChannel(LapVizFile file, List<GeoTelemetryData> fixes, string name, string unit, Func<GeoTelemetryData, double?> value)
     {
-        if (file.IndexOf(name) >= 0 || !fixes.Any(x => value(x).HasValue))
+        if (file.FindChannel(name) != null || !fixes.Any(x => value(x).HasValue))
             return;
 
         var values = fixes.Select(x => value(x) ?? double.NaN).ToArray();
