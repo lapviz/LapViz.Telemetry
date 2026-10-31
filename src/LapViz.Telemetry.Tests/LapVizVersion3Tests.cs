@@ -185,6 +185,35 @@ public class LapVizVersion3Tests
     }
 
     [Fact]
+    public void WithOneTimeBaseBringsEveryChannelToTheTimeOfThePositions()
+    {
+        var file = MultiRate();
+        file.Events.Add(new LapVizEvent { Time = 0.3, Type = "marker" });
+
+        var flat = file.WithOneTimeBase();
+
+        Assert.Single(flat.Groups);
+        Assert.Equal("gps", flat.MainGroup.Name);
+        Assert.Equal(file.Time, flat.Time);
+        Assert.Equal(new[] { "Latitude", "GPS Speed", "RPM", "Water Temp", "Gear", "Lateral" }, flat.Channels.Select(x => x.Name));
+        Assert.True(flat.TryGetValues("RPM", out var rpm));
+        Assert.Equal(10_000, rpm[0]);
+        Assert.Equal(10_500, rpm[5]); // 0.5 s: engine sample 25
+        Assert.All(flat.Channels, x => Assert.False(x.IsInteger));
+        Assert.Equal(LapVizInterpolation.Step, flat.Channels.Single(x => x.Name == "Gear").Interpolation);
+        Assert.Same(file.Session, flat.Session);
+        Assert.Single(flat.Events);
+        Assert.Equal(2, flat.WrittenVersion);
+
+        // A file already on one time base is returned as it is
+        var single = new LapVizFile(Start);
+        single.SetTime(new long[] { 0 });
+        single.AddChannel(new LapVizChannel("RPM"), new[] { 1.0 });
+        single.AddGroup("empty");
+        Assert.Same(single, single.WithOneTimeBase());
+    }
+
+    [Fact]
     public void ResampleHoldsStepsAndInterpolatesTheRest()
     {
         long[] time = { 100, 200, 300, 400 };
