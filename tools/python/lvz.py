@@ -9,11 +9,13 @@ dependency, so that the format can be checked against something else than the .N
     session.channels["GPS Speed"]   # list of floats (None: missing value)
     session.time                    # seconds since session.start
     session.laps()                  # laps of the preferred timing source
+    session.events()                # markers, beacons, flags
 
 Command line: python3 lvz.py file.lvz [...] prints a summary of each file and exits with 1 if one is invalid.
 """
 
 import csv
+import hashlib
 import io
 import json
 import math
@@ -41,16 +43,22 @@ class LapVizSession:
         return self.manifest["session"]["start"]
 
     def timing(self):
-        """The preferred timing source: the first one measured by the logger, else the first one (spec 2.4)."""
+        """The preferred timing source: the first one measured by the logger, else the first one not declared, else the first one (spec 2.4)."""
         sources = self.manifest.get("timing", [])
-        return next((s for s in sources if s.get("device")), sources[0] if sources else None)
+        return next((s for s in sources if s.get("device")), next((s for s in sources if not s.get("declared")), sources[0] if sources else None))
 
     def laps(self):
         source = self.timing()
         return source["laps"] if source else []
 
+    def events(self):
+        """The events with a time and a type, ordered by time (spec 2.5)."""
+        return sorted((e for e in self.manifest.get("events", []) if isinstance(e.get("time"), (int, float)) and e.get("type")), key=lambda e: e["time"])
+
     def best_lap(self):
-        complete = [lap for lap in self.laps() if lap.get("duration") and lap["number"] > 0]
+        """The fastest complete lap after the out lap, neither invalid nor neutralized (spec 2.4)."""
+        excluded = {"invalid", "neutralized"}
+        complete = [lap for lap in self.laps() if lap.get("duration") and lap["number"] > 0 and not excluded & set(lap.get("flags", []))]
         return min(complete, key=lambda lap: lap["duration"], default=None)
 
 
@@ -74,6 +82,8 @@ def read(path_or_stream) -> LapVizSession:
             if samples["file"] not in names:
                 raise LapVizFormatError(f"Entry {samples['file']} is missing")
             data = archive.read(samples["file"])
+            if "sha256" in samples and hashlib.sha256(data).hexdigest() != samples["sha256"].lower():
+                raise LapVizFormatError(f"{samples['file']} is damaged: its SHA-256 is not the one of the manifest")
             if samples["encoding"] == "binary":
                 _read_binary(session, channels, samples, data)
             elif samples["encoding"] == "csv":
@@ -145,6 +155,8 @@ def main(paths):
         print(f"{path}: {info['start']}, {info.get('driver', '?')}, {info.get('circuit', {}).get('name', '?')}")
         print(f"  {len(session.time)} samples, channels: {', '.join(session.channels) or 'none'}")
         print(f"  {len(session.laps())} laps" + (f", best lap {best['number']}: {_format_seconds(best['duration'])}" if best else ""))
+        if session.events():
+            print(f"  {len(session.events())} events: {', '.join(sorted({e['type'] for e in session.events()}))}")
     return status
 
 

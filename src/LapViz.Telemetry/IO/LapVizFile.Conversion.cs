@@ -69,7 +69,7 @@ public sealed partial class LapVizFile
         {
             data.Generator = preferred.Source;
             data.IsTelemetryDevice = preferred.IsDevice;
-            foreach (var timingEvent in Events(preferred))
+            foreach (var timingEvent in Crossings(preferred))
                 data.AddEvent(timingEvent);
         }
         else
@@ -80,7 +80,7 @@ public sealed partial class LapVizFile
         foreach (var source in Timing.Where(x => !ReferenceEquals(x, preferred)))
         {
             var events = new SessionEvents { Generator = source.Source, IsTelemetryDevice = source.IsDevice };
-            foreach (var timingEvent in Events(source))
+            foreach (var timingEvent in Crossings(source))
                 events.AddEvent(timingEvent);
 
             data.TimingData.Add(events);
@@ -236,7 +236,7 @@ public sealed partial class LapVizFile
     }
 
     /// <summary>Lap and sector crossings of a timing source.</summary>
-    private IEnumerable<SessionDataEvent> Events(LapVizTimingSource source)
+    private IEnumerable<SessionDataEvent> Crossings(LapVizTimingSource source)
     {
         foreach (var lap in source.Laps)
         {
@@ -336,6 +336,12 @@ public sealed partial class LapVizFile
             Code = Empty(configuration?.Code) ?? Empty(code),
             Name = Empty(configuration?.Name),
             CountryCode = Empty(configuration?.CountryCode),
+            Type = configuration?.Segments?.Count > 0 ? configuration.Type : null,
+            Lines = configuration?.Segments?
+                .Where(x => x.Boundary?.Start != null && x.Boundary.End != null)
+                .OrderBy(x => x.Number)
+                .Select(x => x.Boundary)
+                .ToList() ?? new List<CircuitGeoLine>(),
         };
     }
 
