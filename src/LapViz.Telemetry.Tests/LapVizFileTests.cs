@@ -171,7 +171,13 @@ public class LapVizFileTests
     }
 
     [Theory]
-    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "version 3")]
+    [InlineData("""{ "format": "lapviz", "version": 4, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [] }""", "version 4")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "missing groups")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "GPS", "channels": [] } ] }""", "invalid group name")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [] }, { "name": "a", "channels": [] } ] }""", "duplicate group")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [ { "name": "X" } ] }, { "name": "b", "channels": [ { "name": "x" } ] } ] }""", "duplicate channel")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [ { "name": "X", "type": "int16", "scale": 0 } ] } ] }""", "scale")]
+    [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [ { "name": "a", "channels": [ { "name": "X", "type": "int64" } ] } ] }""", "unknown type")]
     [InlineData("""{ "format": "other", "version": 2, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "format")]
     [InlineData("""{ "format": "lapviz", "version": 2, "channels": [] }""", "session")]
     [InlineData("""{ "format": "lapviz", "version": 2, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [ { "name": "A" }, { "name": "a" } ] }""", "duplicate")]
@@ -428,6 +434,185 @@ public class LapVizFileTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void TheAdditionsToVersion2RoundTrip()
+    {
+        var file = Sample();
+        file.Session.Clock = LapVizClock.Gps;
+        file.Session.Circuit!.Type = CircuitType.Closed;
+        file.Session.Circuit.Lines.Add(new CircuitGeoLine(new GeoCoordinates(50.98201, 5.33012), new GeoCoordinates(50.98215, 5.33031)));
+        file.Session.Circuit.Lines.Add(new CircuitGeoLine(new GeoCoordinates(50.98302, 5.33112), new GeoCoordinates(50.98315, 5.33131)));
+        file.Channels[1].Rate = 50;
+        file.Channels[1].Origin = "ecu";
+        file.Channels[2].Interpolation = LapVizInterpolation.Step;
+        file.Timing[0].Laps[0].Flags.Add(LapVizLapFlags.PitOut);
+        file.Timing[0].Laps[1].Flags.Add(LapVizLapFlags.Neutralized);
+        file.Timing[0].Laps[1].Flags.Add("future-flag");
+        file.Timing[0].Laps[1].Driver = "Bob Racer";
+        file.Timing[1].IsDeclared = true;
+        file.Events.Add(new LapVizEvent { Time = 40.5, Type = "flag", Label = "yellow", Source = "Transponder" });
+        file.Events.Add(new LapVizEvent { Time = 12.25, Type = "marker", Label = "Vibration", Source = "driver" });
+
+        foreach (var encoding in new[] { LapVizSampleEncoding.Binary, LapVizSampleEncoding.Csv })
+        {
+            var read = LapVizFile.Read(new MemoryStream(file.ToBytes(new LapVizWriteOptions { Encoding = encoding })));
+
+            Assert.Equal("gps", read.Session.Clock);
+            Assert.Equal(CircuitType.Closed, read.Session.Circuit!.Type);
+            Assert.Equal(2, read.Session.Circuit.Lines.Count);
+            Assert.Equal(50.98302, read.Session.Circuit.Lines[1].Start.Latitude);
+            Assert.Equal(5.33131, read.Session.Circuit.Lines[1].End.Longitude);
+            Assert.Null(read.Timing[0].Circuit!.Type);
+            Assert.Equal(50, read.Channels[1].Rate);
+            Assert.Equal("ecu", read.Channels[1].Origin);
+            Assert.Equal(LapVizInterpolation.Linear, read.Channels[1].Interpolation);
+            Assert.Equal(LapVizInterpolation.Step, read.Channels[2].Interpolation);
+            Assert.Equal(new[] { "pitOut" }, read.Timing[0].Laps[0].Flags);
+            Assert.Equal(new[] { "neutralized", "future-flag" }, read.Timing[0].Laps[1].Flags);
+            Assert.Equal("Bob Racer", read.Timing[0].Laps[1].Driver);
+            Assert.Null(read.Timing[0].Laps[0].Driver);
+            Assert.False(read.Timing[0].IsDeclared);
+            Assert.True(read.Timing[1].IsDeclared);
+            Assert.Equal(new[] { "marker", "flag" }, read.Events.Select(x => x.Type)); // Ordered by time
+            Assert.Equal("yellow", read.Events[1].Label);
+            Assert.Equal("Transponder", read.Events[1].Source);
+        }
+    }
+
+    [Fact]
+    public void AFileWithoutTheAdditionsHasTheirDefaults()
+    {
+        var read = LapVizFile.Read(new MemoryStream(Sample().ToBytes()));
+
+        Assert.Null(read.Session.Clock);
+        Assert.Null(read.Session.Circuit!.Type);
+        Assert.Empty(read.Session.Circuit.Lines);
+        Assert.All(read.Channels, x => Assert.Null(x.Rate));
+        Assert.All(read.Channels, x => Assert.Equal(LapVizInterpolation.Linear, x.Interpolation));
+        Assert.All(read.Timing.SelectMany(x => x.Laps), x => Assert.Empty(x.Flags));
+        Assert.Empty(read.Events);
+
+        // Nothing is written for them
+        using var zip = new ZipArchive(new MemoryStream(Sample().ToBytes()));
+        using var reader = new StreamReader(zip.GetEntry("lapviz.json")!.Open());
+        var manifest = reader.ReadToEnd();
+        foreach (var member in new[] { "clock", "lines", "rate", "origin", "interpolation", "flags", "declared", "events" })
+            Assert.DoesNotContain("\"" + member + "\"", manifest);
+    }
+
+    [Theory]
+    [InlineData(LapVizSampleEncoding.Binary)]
+    [InlineData(LapVizSampleEncoding.Csv)]
+    public void DamagedSamplesAreRejected(LapVizSampleEncoding encoding)
+    {
+        var bytes = Sample().ToBytes(new LapVizWriteOptions { Encoding = encoding, Compression = CompressionLevel.NoCompression });
+        using (var zip = new ZipArchive(new MemoryStream(bytes)))
+        using (var reader = new StreamReader(zip.GetEntry("lapviz.json")!.Open()))
+            Assert.Matches("\"sha256\":\\s*\"[0-9a-f]{64}\"", reader.ReadToEnd());
+
+        // One bit of the stored samples flipped: same length, the ZIP itself does not check its CRC here
+        var damaged = Damage(bytes, encoding == LapVizSampleEncoding.Binary ? "samples.bin" : "samples.csv");
+
+        var error = Assert.Throws<InvalidDataException>(() => LapVizFile.Read(new MemoryStream(damaged)));
+        Assert.Contains("damaged", error.Message, StringComparison.Ordinal);
+        Assert.NotNull(LapVizFile.Read(new MemoryStream(Sample().ToBytes(new LapVizWriteOptions { Encoding = encoding, Checksum = false }))));
+    }
+
+    [Fact]
+    public void InvalidLapsAreNotBestLapsAndDeclaredLapsComeAfterMeasuredOnes()
+    {
+        var file = new LapVizFile(Start);
+        file.Timing.Add(new LapVizTimingSource { Source = "Results sheet", IsDeclared = true, Laps = { new LapVizLap { Number = 1, Start = 0, Duration = 60 } } });
+        file.Timing.Add(new LapVizTimingSource { Source = "Phone", Laps = { new LapVizLap { Number = 1, Start = 0, Duration = 60.2 } } });
+        var invalid = new LapVizLap { Number = 2, Start = 60, Duration = 59, Flags = { LapVizLapFlags.Invalid } };
+
+        Assert.Equal("Phone", file.PreferredTiming!.Source);
+        Assert.False(invalid.IsValid);
+        Assert.True(file.Timing[1].Laps[0].IsValid);
+        Assert.False(new LapVizLap { Number = 3, Start = 119 }.IsValid);
+
+        file.Timing.RemoveAt(1);
+        Assert.Equal("Results sheet", file.PreferredTiming!.Source); // Declared laps are better than none
+    }
+
+    [Fact]
+    public void LinesThatAreNotTwoValidPointsAreIgnored()
+    {
+        const string manifest = """
+            {
+              "format": "lapviz", "version": 2, "channels": [],
+              "session": {
+                "start": "2026-01-01T00:00:00Z",
+                "circuit": {
+                  "type": "spiral",
+                  "lines": [
+                    [ { "lat": 50.1, "lon": 5.1 }, { "lat": 50.2, "lon": 5.2 } ],
+                    [ { "lat": 95, "lon": 5.1 }, { "lat": 50.2, "lon": 5.2 } ],
+                    [ { "lat": 50.1, "lon": 5.1 } ],
+                    [ [ 50.1, 5.1 ], [ 50.2, 5.2 ] ],
+                    "start"
+                  ]
+                }
+              },
+              "events": [ { "time": 1, "type": "marker" }, { "type": "marker" }, { "time": 2 } ]
+            }
+            """;
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            Write(zip, "lapviz.json", manifest);
+        }
+
+        stream.Position = 0;
+        var file = LapVizFile.Read(stream);
+
+        Assert.Null(file.Session.Circuit!.Type);
+        Assert.Equal(50.2, Assert.Single(file.Session.Circuit.Lines).End.Latitude);
+        Assert.Equal(1, Assert.Single(file.Events).Time);
+    }
+
+    [Fact]
+    public void TheLinesOfTheCircuitAreExported()
+    {
+        var data = Sample().ToDeviceSessionData();
+        data.CircuitConfiguration = new CircuitConfiguration
+        {
+            Code = "genk",
+            Name = "Karting Genk",
+            Type = CircuitType.Open,
+            Segments =
+            {
+                new CircuitSegment { Number = 2, Boundary = new CircuitGeoLine(new GeoCoordinates(50.2, 5.2), new GeoCoordinates(50.21, 5.21)) },
+                new CircuitSegment { Number = 1, Boundary = new CircuitGeoLine(new GeoCoordinates(50.1, 5.1), new GeoCoordinates(50.11, 5.11)) },
+            },
+        };
+
+        var circuit = LapVizFile.Read(new MemoryStream(LapVizFile.FromDeviceSessionData(data).ToBytes())).Session.Circuit!;
+
+        Assert.Equal(CircuitType.Open, circuit.Type);
+        Assert.Equal(new[] { 50.1, 50.2 }, circuit.Lines.Select(x => x.Start.Latitude)); // In the order of the segments
+    }
+
+    /// <summary>The archive with one bit of the stored entry <paramref name="name"/> flipped.</summary>
+    private static byte[] Damage(byte[] archive, string name)
+    {
+        var damaged = (byte[])archive.Clone();
+        var header = Encoding.ASCII.GetBytes(name);
+        for (int i = 0; i < damaged.Length - header.Length; i++)
+        {
+            // Local file header: signature PK\x03\x04, name at offset 30, data after the name and the extra field
+            if (damaged[i] == 0x50 && damaged[i + 1] == 0x4b && damaged[i + 2] == 3 && damaged[i + 3] == 4 &&
+                damaged.AsSpan(i + 30, header.Length).SequenceEqual(header))
+            {
+                var extra = damaged[i + 28] | (damaged[i + 29] << 8);
+                damaged[i + 30 + header.Length + extra + 2] ^= 1;
+                return damaged;
+            }
+        }
+
+        throw new InvalidOperationException("No entry " + name);
     }
 
     private static void Write(ZipArchive zip, string name, string content)

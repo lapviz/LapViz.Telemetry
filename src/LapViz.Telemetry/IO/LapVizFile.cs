@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LapViz.Telemetry.Domain;
@@ -12,12 +12,15 @@ using LapViz.Telemetry.Domain;
 namespace LapViz.Telemetry.IO;
 
 /// <summary>
-/// A session in the LapViz format, version 2 (<c>docs/lapviz-format.md</c>): a ZIP archive holding the manifest
-/// <c>lapviz.json</c> and the samples, in columns (<c>samples.bin</c>) or as CSV (<c>samples.csv</c>).
+/// A session in the LapViz format, version 3 or 2 (<c>docs/lapviz-format.md</c>): a ZIP archive holding the manifest
+/// <c>lapviz.json</c> and the samples of each group, in columns (binary) or as CSV.
 /// </summary>
 /// <remarks>
-/// The samples are kept in columns: <see cref="Time"/> (microseconds since <see cref="LapVizSessionInfo.Start"/>) and one
-/// array of values per channel, NaN for a missing value. Use <see cref="ToDeviceSessionData"/> and
+/// The samples are kept in groups of channels that share a time base (<see cref="Groups"/>): the time in microseconds since
+/// <see cref="LapVizSessionInfo.Start"/> and one array of values per channel, NaN for a missing value. <see cref="Time"/>,
+/// <see cref="Channels"/>, <see cref="SetTime"/> and <see cref="AddChannel"/> are those of the first group, which is the
+/// whole file in version 2. A file is written in version 2 when it fits (one group, float channels only), so that the
+/// readers of version 2 read it; else in version 3. Use <see cref="ToDeviceSessionData"/> and
 /// <see cref="FromDeviceSessionData"/> to go to and from the readers and writers of the other formats.
 /// </remarks>
 public sealed partial class LapVizFile
@@ -25,28 +28,33 @@ public sealed partial class LapVizFile
     /// <summary>Media type of a LapViz file.</summary>
     public const string MediaType = "application/vnd.lapviz.telemetry+zip";
 
-    /// <summary>Major version of the specification written and read by this class.</summary>
-    public const int FormatVersion = 2;
+    /// <summary>Latest major version of the specification, read and written by this class.</summary>
+    public const int FormatVersion = 3;
+
+    /// <summary>Oldest major version of the specification read and written by this class (one group, float channels).</summary>
+    public const int MinimumFormatVersion = 2;
 
     /// <summary>Name of the manifest entry.</summary>
     public const string ManifestEntry = "lapviz.json";
 
-    /// <summary>Name of the binary samples entry.</summary>
+    /// <summary>Name of the binary samples entry of version 2.</summary>
     public const string BinarySamplesEntry = "samples.bin";
 
-    /// <summary>Name of the CSV samples entry.</summary>
+    /// <summary>Name of the CSV samples entry of version 2.</summary>
     public const string CsvSamplesEntry = "samples.csv";
 
-    private const string FormatName = "lapviz";
-    private const double MicrosecondsPerSecond = 1_000_000;
+    /// <summary>Name of the first group when nothing names it (the samples of a version 2 file).</summary>
+    public const string DefaultGroupName = "main";
 
-    private readonly List<LapVizChannel> _channels = new List<LapVizChannel>();
-    private readonly List<double[]> _values = new List<double[]>();
+    private const string FormatName = "lapviz";
+
+    private readonly List<LapVizSampleGroup> _groups = new List<LapVizSampleGroup>();
 
     /// <summary>Creates an empty session starting at <paramref name="start"/>.</summary>
     public LapVizFile(DateTimeOffset start)
     {
         Session.Start = start;
+        _groups.Add(new LapVizSampleGroup(this, DefaultGroupName));
     }
 
     /// <summary>Software that wrote the file.</summary>
@@ -55,82 +63,75 @@ public sealed partial class LapVizFile
     /// <summary>Description of the session.</summary>
     public LapVizSessionInfo Session { get; set; } = new LapVizSessionInfo();
 
-    /// <summary>The channels, in the order of the columns.</summary>
-    public IReadOnlyList<LapVizChannel> Channels => _channels;
+    /// <summary>
+    /// The groups of samples, each with its own time base; never empty. The first one SHOULD hold the positions: it is the
+    /// time base of <see cref="ToDeviceSessionData"/>.
+    /// </summary>
+    public IReadOnlyList<LapVizSampleGroup> Groups => _groups;
 
-    /// <summary>Microseconds since <see cref="LapVizSessionInfo.Start"/>, strictly increasing.</summary>
-    public long[] Time { get; private set; } = Array.Empty<long>();
+    /// <summary>The first group (<see cref="Groups"/>).</summary>
+    public LapVizSampleGroup MainGroup => _groups[0];
+
+    /// <summary>The channels of the first group, in the order of the columns.</summary>
+    public IReadOnlyList<LapVizChannel> Channels => MainGroup.Channels;
+
+    /// <summary>The channels of every group, the first group first.</summary>
+    public IEnumerable<LapVizChannel> AllChannels => _groups.SelectMany(x => x.Channels);
+
+    /// <summary>Microseconds since <see cref="LapVizSessionInfo.Start"/> of the samples of the first group, strictly increasing.</summary>
+    public long[] Time => MainGroup.Time;
 
     /// <summary>Timing sources and their laps.</summary>
     public IList<LapVizTimingSource> Timing { get; set; } = new List<LapVizTimingSource>();
 
-    /// <summary>Number of samples.</summary>
-    public int Count => Time.Length;
+    /// <summary>Instants of the session: markers, beacons, flags... ordered by time.</summary>
+    public IList<LapVizEvent> Events { get; set; } = new List<LapVizEvent>();
 
-    /// <summary>
-    /// Sets the time of the samples (microseconds since the start, strictly increasing). The channels are removed when the
-    /// number of samples changes.
-    /// </summary>
-    public void SetTime(long[] microseconds)
+    /// <summary>Number of samples of the first group.</summary>
+    public int Count => MainGroup.Count;
+
+    /// <summary>The major version <see cref="Write(Stream, LapVizWriteOptions)"/> writes: 2 when the file fits, else 3.</summary>
+    public int WrittenVersion => _groups.Count(x => !x.IsEmpty) > 1 || AllChannels.Any(x => x.IsInteger) ? 3 : 2;
+
+    /// <summary>Sets the time of the samples of the first group (see <see cref="LapVizSampleGroup.SetTime"/>).</summary>
+    public void SetTime(long[] microseconds) => MainGroup.SetTime(microseconds);
+
+    /// <summary>Adds a channel to the first group; <paramref name="values"/> has one value per sample (NaN: missing).</summary>
+    public void AddChannel(LapVizChannel channel, double[] values) => MainGroup.AddChannel(channel, values);
+
+    /// <summary>Adds a group of samples with its own time base, e.g. "engine" at 50 Hz beside "gps" at 10 Hz.</summary>
+    public LapVizSampleGroup AddGroup(string name)
     {
-        if (microseconds == null)
-            throw new ArgumentNullException(nameof(microseconds));
+        if (_groups.Any(x => x.Name == name))
+            throw new ArgumentException("Duplicate group: " + name, nameof(name));
 
-        for (int i = 1; i < microseconds.Length; i++)
-        {
-            if (microseconds[i] <= microseconds[i - 1])
-                throw new ArgumentException("The time must be strictly increasing (sample " + i + ")", nameof(microseconds));
-        }
-
-        if (microseconds.Length != Time.Length)
-        {
-            _channels.Clear();
-            _values.Clear();
-        }
-
-        Time = microseconds;
+        var group = new LapVizSampleGroup(this, name);
+        _groups.Add(group);
+        return group;
     }
 
-    /// <summary>Adds a channel; <paramref name="values"/> has one value per sample (NaN: missing).</summary>
-    public void AddChannel(LapVizChannel channel, double[] values)
-    {
-        if (channel == null)
-            throw new ArgumentNullException(nameof(channel));
-        if (values == null)
-            throw new ArgumentNullException(nameof(values));
-        if (string.IsNullOrWhiteSpace(channel.Name))
-            throw new ArgumentException("A channel needs a name", nameof(channel));
-        if (values.Length != Count)
-            throw new ArgumentException("The channel has " + values.Length + " values for " + Count + " samples", nameof(values));
-        if (IndexOf(channel.Name) >= 0)
-            throw new ArgumentException("Duplicate channel: " + channel.Name, nameof(channel));
-
-        _channels.Add(channel);
-        _values.Add(values);
-    }
-
-    /// <summary>Values of the channel <paramref name="name"/> (case insensitive); false when the file does not have it.</summary>
-    public bool TryGetValues(string name, out double[] values)
-    {
-        var index = IndexOf(name);
-        values = index < 0 ? Array.Empty<double>() : _values[index];
-        return index >= 0;
-    }
+    /// <summary>Values of the channel <paramref name="name"/> of the first group (case insensitive); false when it does not have it.</summary>
+    public bool TryGetValues(string name, out double[] values) => MainGroup.TryGetValues(name, out values);
 
     /// <summary>Values of the channel at <paramref name="index"/> in <see cref="Channels"/>.</summary>
-    public double[] Values(int index) => _values[index];
+    public double[] Values(int index) => MainGroup.Values(index);
 
-    /// <summary>Instant of the sample <paramref name="index"/>.</summary>
+    /// <summary>The group holding the channel <paramref name="name"/> (case insensitive), or null.</summary>
+    public LapVizSampleGroup? FindChannel(string name) => _groups.FirstOrDefault(x => x.IndexOf(name) >= 0);
+
+    /// <summary>Instant of the sample <paramref name="index"/> of the first group.</summary>
     public DateTimeOffset TimestampAt(int index) => Session.Start.AddTicks(Time[index] * 10);
 
     /// <summary>
-    /// The timing source to use by default: the first one measured by the logger that has laps, else the first one with
-    /// laps, else null.
+    /// The timing source to use by default: the first one measured by the logger that has laps, else the first measured one
+    /// (not declared) with laps, else the first one with laps, else null.
     /// </summary>
     public LapVizTimingSource? PreferredTiming =>
-        Timing.FirstOrDefault(x => x.IsDevice && x.Laps.Any(l => l.IsComplete)) ?? Timing.FirstOrDefault(x => x.Laps.Any(l => l.IsComplete));
+        Timing.FirstOrDefault(x => x.IsDevice && x.Laps.Any(l => l.IsComplete)) ??
+        Timing.FirstOrDefault(x => !x.IsDeclared && x.Laps.Any(l => l.IsComplete)) ??
+        Timing.FirstOrDefault(x => x.Laps.Any(l => l.IsComplete));
 
-    /// <summary>True when the stream is a LapViz version 2 archive (a ZIP holding <c>lapviz.json</c>).</summary>
+    /// <summary>True when the stream is a LapViz version 2 or later archive (a ZIP holding <c>lapviz.json</c>).</summary>
     public static bool IsLapVizArchive(Stream stream)
     {
         if (stream == null)
@@ -149,7 +150,7 @@ public sealed partial class LapVizFile
         }
     }
 
-    /// <summary>True when the file is a LapViz version 2 archive.</summary>
+    /// <summary>True when the file is a LapViz version 2 or later archive.</summary>
     public static bool IsLapVizArchive(string path)
     {
         using (var stream = File.OpenRead(path))
@@ -158,8 +159,8 @@ public sealed partial class LapVizFile
         }
     }
 
-    /// <summary>Reads a LapViz version 2 archive.</summary>
-    /// <exception cref="InvalidDataException">Not a LapViz version 2 file, or an invalid one.</exception>
+    /// <summary>Reads a LapViz archive, version 2 or 3.</summary>
+    /// <exception cref="InvalidDataException">Not a LapViz file of a supported version, or an invalid one.</exception>
     public static LapVizFile Read(Stream stream)
     {
         if (stream == null)
@@ -171,27 +172,33 @@ public sealed partial class LapVizFile
             byte[] manifest = ZipLimits.ReadAll(manifestEntry, MaxManifestBytes);
             var file = ReadManifest(manifest, out var samples);
 
-            if (samples != null)
+            for (int g = 0; g < file._groups.Count; g++)
             {
-                var entry = zip.GetEntry(samples.File) ?? throw new InvalidDataException("Missing samples entry: " + samples.File);
+                var group = file._groups[g];
+                var description = samples[g];
+                if (description == null)
+                {
+                    group.SetEmptyColumns(); // Channels without samples
+                    continue;
+                }
+
+                var entry = zip.GetEntry(description.File) ?? throw new InvalidDataException("Missing samples entry: " + description.File);
                 // Binary samples have an exact size: nothing more is decompressed (ZipLimits for the CSV ones)
-                var data = ZipLimits.ReadAll(entry, samples.Encoding == LapVizSampleEncoding.Binary ? file.BinarySamplesLength(samples.Count) : (long?)null);
-                if (samples.Encoding == LapVizSampleEncoding.Binary)
-                    file.ReadBinarySamples(data, samples.Count, samples.ByteShuffle);
+                var data = ZipLimits.ReadAll(entry, description.Encoding == LapVizSampleEncoding.Binary ? group.BinaryLength(description.Count) : (long?)null);
+                if (description.Sha256 != null && !string.Equals(description.Sha256, Sha256(data), StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(description.File + " is damaged: its SHA-256 is not the one of the manifest");
+
+                if (description.Encoding == LapVizSampleEncoding.Binary)
+                    group.ReadBinary(data, description.Count, description.ByteShuffle);
                 else
-                    file.ReadCsvSamples(data);
-            }
-            else if (file._channels.Count > 0)
-            {
-                // Channels without samples: empty columns
-                file._values.AddRange(file._channels.Select(_ => Array.Empty<double>()));
+                    group.ReadCsv(data);
             }
 
             return file;
         }
     }
 
-    /// <summary>Reads a LapViz version 2 file.</summary>
+    /// <summary>Reads a LapViz file, version 2 or 3.</summary>
     public static LapVizFile Read(string path)
     {
         using (var stream = File.OpenRead(path))
@@ -200,31 +207,46 @@ public sealed partial class LapVizFile
         }
     }
 
-    /// <summary>Writes the session as a LapViz version 2 archive.</summary>
+    /// <summary>Writes the session as a LapViz archive: version 2 when it fits, else version 3 (<see cref="WrittenVersion"/>).</summary>
+    /// <exception cref="InvalidOperationException">A value does not fit the integer type of its channel.</exception>
     public void Write(Stream stream, LapVizWriteOptions? options = null)
     {
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
         options = options ?? new LapVizWriteOptions();
+        var version = WrittenVersion;
+        var extension = options.Encoding == LapVizSampleEncoding.Binary ? ".bin" : ".csv";
+
+        // The samples are encoded first: the manifest, written before them, holds their SHA-256
+        var written = new List<WrittenGroup>();
+        foreach (var group in _groups.Where(x => !x.IsEmpty))
+        {
+            using (var buffer = new MemoryStream())
+            {
+                if (options.Encoding == LapVizSampleEncoding.Binary)
+                    group.WriteBinary(buffer, options.ByteShuffle);
+                else
+                    group.WriteCsv(buffer);
+
+                var data = buffer.ToArray();
+                var entry = version == 2 ? "samples" + extension : "samples/" + group.Name + extension;
+                written.Add(new WrittenGroup(group, entry, data, options.Checksum ? Sha256(data) : null));
+            }
+        }
+
         using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
         {
-            var hasSamples = Count > 0 || _channels.Count > 0;
-            var samplesEntry = options.Encoding == LapVizSampleEncoding.Binary ? BinarySamplesEntry : CsvSamplesEntry;
-
             using (var manifest = zip.CreateEntry(ManifestEntry, options.Compression).Open())
             {
-                WriteManifest(manifest, options, hasSamples ? samplesEntry : null);
+                WriteManifest(manifest, options, version, written);
             }
 
-            if (hasSamples)
+            foreach (var group in written)
             {
-                using (var samples = zip.CreateEntry(samplesEntry, options.Compression).Open())
+                using (var entry = zip.CreateEntry(group.Entry, options.Compression).Open())
                 {
-                    if (options.Encoding == LapVizSampleEncoding.Binary)
-                        WriteBinarySamples(samples, options.ByteShuffle);
-                    else
-                        WriteCsvSamples(samples);
+                    entry.Write(group.Data, 0, group.Data.Length);
                 }
             }
         }
@@ -249,16 +271,8 @@ public sealed partial class LapVizFile
         }
     }
 
-    private int IndexOf(string name)
-    {
-        for (int i = 0; i < _channels.Count; i++)
-        {
-            if (string.Equals(_channels[i].Name, name, StringComparison.OrdinalIgnoreCase))
-                return i;
-        }
-
-        return -1;
-    }
+    /// <summary>Name of a value type in the manifest.</summary>
+    internal static string TypeName(LapVizValueType type) => type.ToString().ToLowerInvariant();
 
     private static Stream Seekable(Stream stream)
     {
@@ -271,273 +285,31 @@ public sealed partial class LapVizFile
         return copy;
     }
 
+    /// <summary>SHA-256 of <paramref name="data"/>, lowercase hexadecimal.</summary>
+    private static string Sha256(byte[] data)
+    {
+        using (var sha = SHA256.Create())
+        {
+            var hash = sha.ComputeHash(data);
+            var text = new StringBuilder(hash.Length * 2);
+            foreach (var b in hash)
+                text.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+
+            return text.ToString();
+        }
+    }
+
     /// <summary>Largest manifest read: it holds the metadata and the laps, never the samples.</summary>
     private const long MaxManifestBytes = 64L * 1024 * 1024;
 
-    private long BinarySamplesLength(int count) =>
-        count < 0 ? 0 : (long)count * (sizeof(long) + _channels.Sum(x => x.Type == LapVizValueType.Float32 ? sizeof(float) : sizeof(double)));
-
-    // Binary samples (section 3 of the specification)
-    private void WriteBinarySamples(Stream stream, bool shuffle)
-    {
-        WriteColumn(stream, MemoryMarshal.AsBytes(Time.AsSpan()).ToArray(), sizeof(long), shuffle);
-        for (int k = 0; k < _channels.Count; k++)
-        {
-            var values = _values[k];
-            byte[] bytes;
-            if (_channels[k].Type == LapVizValueType.Float32)
-            {
-                var floats = new float[values.Length];
-                for (int i = 0; i < values.Length; i++)
-                    floats[i] = (float)values[i];
-
-                bytes = MemoryMarshal.AsBytes(floats.AsSpan()).ToArray();
-                WriteColumn(stream, bytes, sizeof(float), shuffle);
-            }
-            else
-            {
-                bytes = MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
-                WriteColumn(stream, bytes, sizeof(double), shuffle);
-            }
-        }
-    }
-
-    private void ReadBinarySamples(byte[] data, int count, bool shuffle)
-    {
-        if (count < 0)
-            throw new InvalidDataException("Negative sample count");
-
-        long expected = (long)count * (sizeof(long) + _channels.Sum(x => x.Type == LapVizValueType.Float32 ? sizeof(float) : sizeof(double)));
-        if (data.Length != expected)
-            throw new InvalidDataException("samples.bin has " + data.Length + " bytes, " + expected + " expected for " + count + " samples");
-
-        int offset = 0;
-        var time = MemoryMarshal.Cast<byte, long>(ReadColumn(data, ref offset, count, sizeof(long), shuffle)).ToArray();
-        var values = new List<double[]>(_channels.Count);
-        foreach (var channel in _channels)
-        {
-            if (channel.Type == LapVizValueType.Float32)
-            {
-                var floats = MemoryMarshal.Cast<byte, float>(ReadColumn(data, ref offset, count, sizeof(float), shuffle));
-                var column = new double[count];
-                for (int i = 0; i < count; i++)
-                    column[i] = floats[i];
-
-                values.Add(column);
-            }
-            else
-            {
-                values.Add(MemoryMarshal.Cast<byte, double>(ReadColumn(data, ref offset, count, sizeof(double), shuffle)).ToArray());
-            }
-        }
-
-        SetSamples(time, values);
-    }
-
-    /// <summary>Writes a column of little endian values, transposed when <paramref name="shuffle"/>.</summary>
-    private static void WriteColumn(Stream stream, byte[] bytes, int size, bool shuffle)
-    {
-        EnsureLittleEndian(bytes, size);
-        if (!shuffle)
-        {
-            stream.Write(bytes, 0, bytes.Length);
-            return;
-        }
-
-        int count = bytes.Length / size;
-        var shuffled = new byte[bytes.Length];
-        for (int i = 0; i < count; i++)
-        {
-            for (int b = 0; b < size; b++)
-                shuffled[(b * count) + i] = bytes[(i * size) + b];
-        }
-
-        stream.Write(shuffled, 0, shuffled.Length);
-    }
-
-    private static byte[] ReadColumn(byte[] data, ref int offset, int count, int size, bool shuffle)
-    {
-        var bytes = new byte[count * size];
-        if (shuffle)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                for (int b = 0; b < size; b++)
-                    bytes[(i * size) + b] = data[offset + (b * count) + i];
-            }
-        }
-        else
-        {
-            Buffer.BlockCopy(data, offset, bytes, 0, bytes.Length);
-        }
-
-        offset += bytes.Length;
-        EnsureLittleEndian(bytes, size);
-        return bytes;
-    }
-
-    /// <summary>The format is little endian: reverses the bytes of each value on a big endian machine.</summary>
-    private static void EnsureLittleEndian(byte[] bytes, int size)
-    {
-        if (BitConverter.IsLittleEndian)
-            return;
-
-        for (int i = 0; i < bytes.Length; i += size)
-            Array.Reverse(bytes, i, size);
-    }
-
-    // CSV samples (section 4 of the specification)
-    private void WriteCsvSamples(Stream stream)
-    {
-        using (var writer = new StreamWriter(stream, new UTF8Encoding(false), 65536, leaveOpen: true))
-        {
-            writer.NewLine = "\n";
-            writer.Write("time");
-            foreach (var channel in _channels)
-            {
-                writer.Write(',');
-                writer.Write(CsvField(channel.Name));
-            }
-
-            writer.WriteLine();
-            var line = new StringBuilder();
-            for (int i = 0; i < Count; i++)
-            {
-                line.Clear();
-                line.Append(FormatSeconds(Time[i]));
-                for (int k = 0; k < _channels.Count; k++)
-                {
-                    line.Append(',');
-                    var value = _values[k][i];
-                    if (!double.IsNaN(value))
-                        line.Append(FormatValue(value, _channels[k].Type));
-                }
-
-                writer.WriteLine(line.ToString());
-            }
-        }
-    }
-
-    private void ReadCsvSamples(byte[] data)
-    {
-        using (var reader = new StreamReader(new MemoryStream(data), new UTF8Encoding(false), true))
-        {
-            var header = reader.ReadLine() ?? throw new InvalidDataException("samples.csv is empty");
-            var names = SplitCsv(header);
-            if (names.Count == 0 || !string.Equals(names[0], "time", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("samples.csv must start with the time column");
-            if (names.Count - 1 != _channels.Count || names.Skip(1).Where((name, k) => !string.Equals(name, _channels[k].Name, StringComparison.Ordinal)).Any())
-                throw new InvalidDataException("The columns of samples.csv do not match the channels of the manifest");
-
-            var time = new List<long>();
-            var columns = _channels.Select(_ => new List<double>()).ToList();
-            string? line;
-            int lineNumber = 1;
-            while ((line = reader.ReadLine()) != null)
-            {
-                lineNumber++;
-                if (line.Length == 0)
-                    continue;
-
-                var fields = SplitCsv(line);
-                if (!double.TryParse(fields[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
-                    throw new InvalidDataException("samples.csv line " + lineNumber + ": invalid time");
-
-                time.Add((long)Math.Round(seconds * MicrosecondsPerSecond));
-                for (int k = 0; k < columns.Count; k++)
-                {
-                    var field = k + 1 < fields.Count ? fields[k + 1] : string.Empty;
-                    columns[k].Add(field.Length == 0
-                        ? double.NaN
-                        : double.TryParse(field, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : throw new InvalidDataException("samples.csv line " + lineNumber + ": invalid value for " + _channels[k].Name));
-                }
-            }
-
-            SetSamples(time.ToArray(), columns.Select(x => x.ToArray()).ToList());
-        }
-    }
-
-    private void SetSamples(long[] time, List<double[]> values)
-    {
-        for (int i = 1; i < time.Length; i++)
-        {
-            if (time[i] <= time[i - 1])
-                throw new InvalidDataException("The time of the samples must be strictly increasing (sample " + i + ")");
-        }
-
-        Time = time;
-        _values.Clear();
-        _values.AddRange(values);
-    }
-
-    private static string FormatSeconds(long microseconds)
-    {
-        var sign = microseconds < 0 ? "-" : string.Empty;
-        var absolute = Math.Abs(microseconds);
-        var text = (absolute / 1_000_000).ToString(CultureInfo.InvariantCulture);
-        var fraction = absolute % 1_000_000;
-        return fraction == 0 ? sign + text : sign + text + "." + fraction.ToString("000000", CultureInfo.InvariantCulture).TrimEnd('0');
-    }
-
-    private static string FormatValue(double value, LapVizValueType type) =>
-        type == LapVizValueType.Float32
-            ? ((float)value).ToString("R", CultureInfo.InvariantCulture)
-            : value.ToString("R", CultureInfo.InvariantCulture);
-
-    private static string CsvField(string value) =>
-        value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
-
-    private static List<string> SplitCsv(string line)
-    {
-        var fields = new List<string>();
-        var field = new StringBuilder();
-        bool quoted = false;
-        for (int i = 0; i < line.Length; i++)
-        {
-            var c = line[i];
-            if (quoted)
-            {
-                if (c == '"' && i + 1 < line.Length && line[i + 1] == '"')
-                {
-                    field.Append('"');
-                    i++;
-                }
-                else if (c == '"')
-                {
-                    quoted = false;
-                }
-                else
-                {
-                    field.Append(c);
-                }
-            }
-            else if (c == '"')
-            {
-                quoted = true;
-            }
-            else if (c == ',')
-            {
-                fields.Add(field.ToString());
-                field.Clear();
-            }
-            else
-            {
-                field.Append(c);
-            }
-        }
-
-        fields.Add(field.ToString());
-        return fields;
-    }
-
     // Manifest (section 2 of the specification)
-    private void WriteManifest(Stream stream, LapVizWriteOptions options, string? samplesEntry)
+    private void WriteManifest(Stream stream, LapVizWriteOptions options, int version, List<WrittenGroup> groups)
     {
         using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = options.IndentManifest }))
         {
             json.WriteStartObject();
             json.WriteString("format", FormatName);
-            json.WriteNumber("version", FormatVersion);
+            json.WriteNumber("version", version);
 
             if (Generator != null && (Generator.Name != null || Generator.Version != null))
             {
@@ -549,6 +321,7 @@ public sealed partial class LapVizFile
 
             json.WriteStartObject("session");
             json.WriteString("start", Session.Start.ToString("yyyy-MM-ddTHH:mm:ss.fffffffzzz", CultureInfo.InvariantCulture));
+            WriteOptional(json, "clock", Session.Clock);
             WriteOptional(json, "driver", Session.Driver);
             WriteOptional(json, "vehicle", Session.Vehicle);
             if (Session.Device != null)
@@ -577,29 +350,27 @@ public sealed partial class LapVizFile
 
             json.WriteEndObject();
 
-            json.WriteStartArray("channels");
-            foreach (var channel in _channels)
+            if (version == 2)
             {
-                json.WriteStartObject();
-                json.WriteString("name", channel.Name);
-                WriteOptional(json, "unit", channel.Unit);
-                json.WriteString("type", channel.Type == LapVizValueType.Float32 ? "float32" : "float64");
-                WriteOptional(json, "description", channel.Description);
-                json.WriteEndObject();
+                // One group: its channels and samples at the root
+                var group = groups.FirstOrDefault();
+                WriteChannels(json, group?.Group.Channels ?? MainGroup.Channels, version);
+                if (group != null)
+                    WriteSamples(json, options, group);
             }
-
-            json.WriteEndArray();
-
-            if (samplesEntry != null)
+            else
             {
-                json.WriteStartObject("samples");
-                json.WriteString("file", samplesEntry);
-                json.WriteString("encoding", options.Encoding == LapVizSampleEncoding.Binary ? "binary" : "csv");
-                json.WriteNumber("count", Count);
-                if (options.Encoding == LapVizSampleEncoding.Binary)
-                    json.WriteBoolean("byteShuffle", options.ByteShuffle);
+                json.WriteStartArray("groups");
+                foreach (var group in groups)
+                {
+                    json.WriteStartObject();
+                    json.WriteString("name", group.Group.Name);
+                    WriteChannels(json, group.Group.Channels, version);
+                    WriteSamples(json, options, group);
+                    json.WriteEndObject();
+                }
 
-                json.WriteEndObject();
+                json.WriteEndArray();
             }
 
             if (Timing.Count > 0)
@@ -611,6 +382,8 @@ public sealed partial class LapVizFile
                     json.WriteString("source", source.Source ?? string.Empty);
                     if (source.IsDevice)
                         json.WriteBoolean("device", true);
+                    if (source.IsDeclared)
+                        json.WriteBoolean("declared", true);
 
                     WriteCircuit(json, source.Circuit);
                     json.WriteStartArray("laps");
@@ -631,6 +404,16 @@ public sealed partial class LapVizFile
                             json.WriteEndArray();
                         }
 
+                        if (lap.Flags != null && lap.Flags.Any(x => !string.IsNullOrEmpty(x)))
+                        {
+                            json.WriteStartArray("flags");
+                            foreach (var flag in lap.Flags.Where(x => !string.IsNullOrEmpty(x)).Distinct())
+                                json.WriteStringValue(flag);
+
+                            json.WriteEndArray();
+                        }
+
+                        WriteOptional(json, "driver", lap.Driver);
                         json.WriteEndObject();
                     }
 
@@ -641,19 +424,102 @@ public sealed partial class LapVizFile
                 json.WriteEndArray();
             }
 
+            if (Events != null && Events.Count > 0)
+            {
+                json.WriteStartArray("events");
+                foreach (var item in Events.Where(x => !string.IsNullOrEmpty(x.Type)).OrderBy(x => x.Time))
+                {
+                    json.WriteStartObject();
+                    json.WriteNumber("time", Math.Round(item.Time, 6));
+                    json.WriteString("type", item.Type);
+                    WriteOptional(json, "label", item.Label);
+                    WriteOptional(json, "source", item.Source);
+                    json.WriteEndObject();
+                }
+
+                json.WriteEndArray();
+            }
+
             json.WriteEndObject();
         }
     }
 
+    private static void WriteChannels(Utf8JsonWriter json, IEnumerable<LapVizChannel> channels, int version)
+    {
+        json.WriteStartArray("channels");
+        foreach (var channel in channels)
+        {
+            json.WriteStartObject();
+            json.WriteString("name", channel.Name);
+            WriteOptional(json, "unit", channel.Unit);
+            json.WriteString("type", TypeName(channel.Type));
+            if (version >= 3 && channel.IsInteger)
+            {
+                if (channel.Scale != 1)
+                    json.WriteNumber("scale", channel.Scale);
+                if (channel.Offset != 0)
+                    json.WriteNumber("offset", channel.Offset);
+            }
+
+            WriteOptional(json, "description", channel.Description);
+            if (channel.Rate > 0)
+                WriteOptional(json, "rate", channel.Rate);
+
+            WriteOptional(json, "origin", channel.Origin);
+            if (channel.Interpolation == LapVizInterpolation.Step)
+                json.WriteString("interpolation", "step");
+
+            json.WriteEndObject();
+        }
+
+        json.WriteEndArray();
+    }
+
+    private static void WriteSamples(Utf8JsonWriter json, LapVizWriteOptions options, WrittenGroup group)
+    {
+        json.WriteStartObject("samples");
+        json.WriteString("file", group.Entry);
+        json.WriteString("encoding", options.Encoding == LapVizSampleEncoding.Binary ? "binary" : "csv");
+        json.WriteNumber("count", group.Group.Count);
+        if (options.Encoding == LapVizSampleEncoding.Binary)
+            json.WriteBoolean("byteShuffle", options.ByteShuffle);
+
+        WriteOptional(json, "sha256", group.Sha256);
+        json.WriteEndObject();
+    }
+
     private static void WriteCircuit(Utf8JsonWriter json, LapVizCircuit? circuit)
     {
-        if (circuit == null || (circuit.Code == null && circuit.Name == null && circuit.CountryCode == null))
+        if (circuit == null || circuit.IsEmpty)
             return;
 
         json.WriteStartObject("circuit");
         WriteOptional(json, "code", circuit.Code);
         WriteOptional(json, "name", circuit.Name);
         WriteOptional(json, "countryCode", circuit.CountryCode);
+        if (circuit.Type.HasValue)
+            json.WriteString("type", circuit.Type == CircuitType.Open ? "open" : "closed");
+
+        if (circuit.Lines != null && circuit.Lines.Count > 0)
+        {
+            json.WriteStartArray("lines");
+            foreach (var line in circuit.Lines)
+            {
+                json.WriteStartArray();
+                foreach (var point in new[] { line.Start, line.End })
+                {
+                    json.WriteStartObject();
+                    json.WriteNumber("lat", point.Latitude);
+                    json.WriteNumber("lon", point.Longitude);
+                    json.WriteEndObject();
+                }
+
+                json.WriteEndArray();
+            }
+
+            json.WriteEndArray();
+        }
+
         json.WriteEndObject();
     }
 
@@ -694,7 +560,7 @@ public sealed partial class LapVizFile
             json.WriteString(name, value);
     }
 
-    private static LapVizFile ReadManifest(byte[] manifest, out SamplesDescription? samples)
+    private static LapVizFile ReadManifest(byte[] manifest, out List<SamplesDescription?> samples)
     {
         JsonDocument document;
         try
@@ -714,8 +580,8 @@ public sealed partial class LapVizFile
 
             if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var major))
                 throw new InvalidDataException("lapviz.json: missing version");
-            if (major != FormatVersion)
-                throw new InvalidDataException("Unsupported LapViz format version " + major + " (this reader supports version " + FormatVersion + ")");
+            if (major < MinimumFormatVersion || major > FormatVersion)
+                throw new InvalidDataException("Unsupported LapViz format version " + major + " (this reader supports versions " + MinimumFormatVersion + " to " + FormatVersion + ")");
 
             if (!root.TryGetProperty("session", out var session) || session.ValueKind != JsonValueKind.Object)
                 throw new InvalidDataException("lapviz.json: missing session");
@@ -725,6 +591,7 @@ public sealed partial class LapVizFile
                 throw new InvalidDataException("lapviz.json: invalid session.start " + startText);
 
             var file = new LapVizFile(start);
+            file.Session.Clock = String(session, "clock");
             if (root.TryGetProperty("generator", out var generator) && generator.ValueKind == JsonValueKind.Object)
                 file.Generator = new LapVizGenerator { Name = String(generator, "name"), Version = String(generator, "version") };
 
@@ -755,45 +622,40 @@ public sealed partial class LapVizFile
                 }
             }
 
-            if (!root.TryGetProperty("channels", out var channels) || channels.ValueKind != JsonValueKind.Array)
-                throw new InvalidDataException("lapviz.json: missing channels");
-
-            foreach (var channel in channels.EnumerateArray())
+            samples = new List<SamplesDescription?>();
+            if (major == 2)
             {
-                var name = String(channel, "name");
-                if (string.IsNullOrWhiteSpace(name))
-                    throw new InvalidDataException("lapviz.json: a channel has no name");
-                if (file.IndexOf(name!) >= 0)
-                    throw new InvalidDataException("lapviz.json: duplicate channel " + name);
-
-                var type = String(channel, "type");
-                file._channels.Add(new LapVizChannel
-                {
-                    Name = name!,
-                    Unit = String(channel, "unit"),
-                    Description = String(channel, "description"),
-                    Type = type == null || type == "float64" ? LapVizValueType.Float64
-                        : type == "float32" ? LapVizValueType.Float32
-                        : throw new InvalidDataException("lapviz.json: unknown type " + type + " of channel " + name),
-                });
+                // One group: channels and samples at the root
+                ReadChannels(file.MainGroup, root, major);
+                samples.Add(Samples(root));
             }
-
-            samples = null;
-            if (root.TryGetProperty("samples", out var samplesElement) && samplesElement.ValueKind == JsonValueKind.Object)
+            else
             {
-                var encoding = String(samplesElement, "encoding");
-                samples = new SamplesDescription
-                {
-                    File = String(samplesElement, "file") ?? throw new InvalidDataException("lapviz.json: missing samples.file"),
-                    Encoding = encoding == "binary" ? LapVizSampleEncoding.Binary
-                        : encoding == "csv" ? LapVizSampleEncoding.Csv
-                        : throw new InvalidDataException("lapviz.json: unknown samples.encoding " + encoding),
-                    Count = samplesElement.TryGetProperty("count", out var count) && count.TryGetInt32(out var n) ? n : -1,
-                    ByteShuffle = samplesElement.TryGetProperty("byteShuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True,
-                };
+                if (!root.TryGetProperty("groups", out var groups) || groups.ValueKind != JsonValueKind.Array || groups.GetArrayLength() == 0)
+                    throw new InvalidDataException("lapviz.json: missing groups");
 
-                if (samples.Encoding == LapVizSampleEncoding.Binary && samples.Count < 0)
-                    throw new InvalidDataException("lapviz.json: binary samples need a count");
+                foreach (var element in groups.EnumerateArray())
+                {
+                    var name = String(element, "name");
+                    if (!LapVizSampleGroup.IsValidName(name))
+                        throw new InvalidDataException("lapviz.json: invalid group name " + name);
+                    if (file._groups.Skip(samples.Count == 0 ? 1 : 0).Any(x => x.Name == name))
+                        throw new InvalidDataException("lapviz.json: duplicate group " + name);
+
+                    LapVizSampleGroup group;
+                    if (samples.Count == 0)
+                    {
+                        group = file.MainGroup;
+                        group.Name = name!;
+                    }
+                    else
+                    {
+                        group = file.AddGroup(name!);
+                    }
+
+                    ReadChannels(group, element, major);
+                    samples.Add(Samples(element));
+                }
             }
 
             if (root.TryGetProperty("timing", out var timing) && timing.ValueKind == JsonValueKind.Array)
@@ -804,6 +666,7 @@ public sealed partial class LapVizFile
                     {
                         Source = String(source, "source") ?? string.Empty,
                         IsDevice = source.TryGetProperty("device", out var isDevice) && isDevice.ValueKind == JsonValueKind.True,
+                        IsDeclared = source.TryGetProperty("declared", out var isDeclared) && isDeclared.ValueKind == JsonValueKind.True,
                         Circuit = Circuit(source),
                     };
 
@@ -819,6 +682,10 @@ public sealed partial class LapVizFile
                                 Sectors = lap.TryGetProperty("sectors", out var sectors) && sectors.ValueKind == JsonValueKind.Array
                                     ? sectors.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetDouble()).ToList()
                                     : new List<double>(),
+                                Flags = lap.TryGetProperty("flags", out var flags) && flags.ValueKind == JsonValueKind.Array
+                                    ? flags.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+                                    : new List<string>(),
+                                Driver = String(lap, "driver"),
                             });
                         }
                     }
@@ -827,8 +694,88 @@ public sealed partial class LapVizFile
                 }
             }
 
+            if (root.TryGetProperty("events", out var events) && events.ValueKind == JsonValueKind.Array)
+            {
+                // An event without a time or a type is ignored, like an unknown member
+                foreach (var item in events.EnumerateArray())
+                {
+                    var time = Number(item, "time");
+                    var type = String(item, "type");
+                    if (time.HasValue && !string.IsNullOrEmpty(type))
+                        file.Events.Add(new LapVizEvent { Time = time.Value, Type = type!, Label = String(item, "label"), Source = String(item, "source") });
+                }
+            }
+
             return file;
         }
+    }
+
+    private static void ReadChannels(LapVizSampleGroup group, JsonElement parent, int version)
+    {
+        if (!parent.TryGetProperty("channels", out var channels) || channels.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("lapviz.json: missing channels");
+
+        foreach (var channel in channels.EnumerateArray())
+        {
+            var name = String(channel, "name");
+            if (string.IsNullOrWhiteSpace(name))
+                throw new InvalidDataException("lapviz.json: a channel has no name");
+
+            var typeName = String(channel, "type");
+            var type = typeName == null ? LapVizValueType.Float64 : ValueType(typeName, version) ?? throw new InvalidDataException("lapviz.json: unknown type " + typeName + " of channel " + name);
+            var scale = Number(channel, "scale") ?? 1;
+            if (!(scale > 0) || double.IsInfinity(scale))
+                throw new InvalidDataException("lapviz.json: the scale of channel " + name + " must be strictly positive");
+
+            var integer = type != LapVizValueType.Float32 && type != LapVizValueType.Float64;
+            group.DeclareChannel(new LapVizChannel
+            {
+                Name = name!,
+                Unit = String(channel, "unit"),
+                Type = type,
+                Scale = integer ? scale : 1,
+                Offset = integer ? Number(channel, "offset") ?? 0 : 0,
+                Description = String(channel, "description"),
+                Rate = Number(channel, "rate") is > 0 and var rate ? rate : null,
+                Origin = String(channel, "origin"),
+                Interpolation = String(channel, "interpolation") == "step" ? LapVizInterpolation.Step : LapVizInterpolation.Linear,
+            });
+        }
+    }
+
+    /// <summary>The type of a channel; the integer types are version 3.</summary>
+    private static LapVizValueType? ValueType(string name, int version)
+    {
+        foreach (LapVizValueType type in Enum.GetValues(typeof(LapVizValueType)))
+        {
+            if (TypeName(type) == name)
+                return type is LapVizValueType.Float32 or LapVizValueType.Float64 || version >= 3 ? type : null;
+        }
+
+        return null;
+    }
+
+    private static SamplesDescription? Samples(JsonElement parent)
+    {
+        if (!parent.TryGetProperty("samples", out var element) || element.ValueKind != JsonValueKind.Object)
+            return null;
+
+        var encoding = String(element, "encoding");
+        var samples = new SamplesDescription
+        {
+            File = String(element, "file") ?? throw new InvalidDataException("lapviz.json: missing samples.file"),
+            Encoding = encoding == "binary" ? LapVizSampleEncoding.Binary
+                : encoding == "csv" ? LapVizSampleEncoding.Csv
+                : throw new InvalidDataException("lapviz.json: unknown samples.encoding " + encoding),
+            Count = element.TryGetProperty("count", out var count) && count.TryGetInt32(out var n) ? n : -1,
+            ByteShuffle = element.TryGetProperty("byteShuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True,
+            Sha256 = String(element, "sha256"),
+        };
+
+        if (samples.Encoding == LapVizSampleEncoding.Binary && samples.Count < 0)
+            throw new InvalidDataException("lapviz.json: binary samples need a count");
+
+        return samples;
     }
 
     private static LapVizCircuit? Circuit(JsonElement parent)
@@ -836,7 +783,41 @@ public sealed partial class LapVizFile
         if (!parent.TryGetProperty("circuit", out var circuit) || circuit.ValueKind != JsonValueKind.Object)
             return null;
 
-        return new LapVizCircuit { Code = String(circuit, "code"), Name = String(circuit, "name"), CountryCode = String(circuit, "countryCode") };
+        var type = String(circuit, "type");
+        return new LapVizCircuit
+        {
+            Code = String(circuit, "code"),
+            Name = String(circuit, "name"),
+            CountryCode = String(circuit, "countryCode"),
+            Type = type == "open" ? CircuitType.Open : type == "closed" ? CircuitType.Closed : null,
+            Lines = Lines(circuit),
+        };
+    }
+
+    /// <summary>The timing lines of a circuit; a line that is not two points of a valid latitude and longitude is ignored.</summary>
+    private static List<CircuitGeoLine> Lines(JsonElement circuit)
+    {
+        var lines = new List<CircuitGeoLine>();
+        if (!circuit.TryGetProperty("lines", out var array) || array.ValueKind != JsonValueKind.Array)
+            return lines;
+
+        foreach (var line in array.EnumerateArray())
+        {
+            if (line.ValueKind != JsonValueKind.Array || line.GetArrayLength() != 2)
+                continue;
+
+            var points = line.EnumerateArray()
+                .Select(x => x.ValueKind == JsonValueKind.Object ? (Latitude: Number(x, "lat"), Longitude: Number(x, "lon")) : (null, null))
+                .ToList();
+            if (points.All(x => x.Latitude is >= -90 and <= 90 && x.Longitude is >= -180 and <= 180))
+            {
+                lines.Add(new CircuitGeoLine(
+                    new GeoCoordinates(points[0].Latitude!.Value, points[0].Longitude!.Value),
+                    new GeoCoordinates(points[1].Latitude!.Value, points[1].Longitude!.Value)));
+            }
+        }
+
+        return lines;
     }
 
     /// <summary>The setup of the session; members of the wrong type or out of their range are ignored.</summary>
@@ -873,6 +854,26 @@ public sealed partial class LapVizFile
     private static double? Number(JsonElement parent, string name) =>
         parent.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : (double?)null;
 
+    /// <summary>A group as written: its archive entry, its encoded samples and their SHA-256.</summary>
+    private sealed class WrittenGroup
+    {
+        public WrittenGroup(LapVizSampleGroup group, string entry, byte[] data, string? sha256)
+        {
+            Group = group;
+            Entry = entry;
+            Data = data;
+            Sha256 = sha256;
+        }
+
+        public LapVizSampleGroup Group { get; }
+
+        public string Entry { get; }
+
+        public byte[] Data { get; }
+
+        public string? Sha256 { get; }
+    }
+
     private sealed class SamplesDescription
     {
         public string File { get; set; } = string.Empty;
@@ -882,5 +883,7 @@ public sealed partial class LapVizFile
         public int Count { get; set; }
 
         public bool ByteShuffle { get; set; }
+
+        public string? Sha256 { get; set; }
     }
 }

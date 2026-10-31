@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/lapviz/LapViz.Telemetry/main/docs/lapviz-format.schema.json",
-  "title": "LapViz telemetry format, version 2: manifest (lapviz.json)",
+  "title": "LapViz telemetry format, versions 3 and 2: manifest (lapviz.json)",
   "description": "The manifest of a LapViz file (.lvz). Specification: https://github.com/lapviz/LapViz.Telemetry/blob/main/docs/lapviz-format.md. Unknown members are allowed: readers ignore them.",
   "type": "object",
-  "required": ["format", "version", "session", "channels"],
+  "required": ["format", "version", "session"],
   "properties": {
     "format": { "const": "lapviz" },
-    "version": { "const": 2, "description": "Major version of the specification. A reader refuses a version it does not support." },
+    "version": { "enum": [2, 3], "description": "Major version of the specification. A reader refuses a version it does not support." },
     "generator": {
       "type": "object",
       "description": "Software that wrote the file.",
@@ -17,19 +17,49 @@
       }
     },
     "session": { "$ref": "#/$defs/session" },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Version 3: the groups of samples, each with its own time.",
+      "items": { "$ref": "#/$defs/group" }
+    },
     "channels": {
       "type": "array",
-      "description": "The channels of the samples, in the order of the columns.",
+      "description": "Version 2: the channels of the samples, in the order of the columns.",
       "items": { "$ref": "#/$defs/channel" }
     },
-    "samples": { "$ref": "#/$defs/samples" },
+    "samples": { "$ref": "#/$defs/samples", "description": "Version 2: the samples." },
     "timing": {
       "type": "array",
       "description": "Timing sources and their laps; readers prefer the first source with device true.",
       "items": { "$ref": "#/$defs/timingSource" }
+    },
+    "events": {
+      "type": "array",
+      "description": "Instants of the session: markers, beacons, flags. Readers ignore an event without time or type.",
+      "items": { "$ref": "#/$defs/event" }
     }
   },
+  "if": { "properties": { "version": { "const": 2 } } },
+  "then": {
+    "required": ["channels"],
+    "not": { "required": ["groups"] },
+    "properties": {
+      "channels": { "items": { "properties": { "type": { "enum": ["float32", "float64"] } } } },
+      "samples": { "properties": { "file": { "enum": ["samples.bin", "samples.csv"] } } }
+    }
+  },
+  "else": { "required": ["groups"] },
   "$defs": {
+    "group": {
+      "type": "object",
+      "required": ["name", "channels"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "description": "Unique in the file." },
+        "channels": { "type": "array", "items": { "$ref": "#/$defs/channel" } },
+        "samples": { "$ref": "#/$defs/samples" }
+      }
+    },
     "session": {
       "type": "object",
       "required": ["start"],
@@ -40,6 +70,7 @@
           "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$",
           "description": "Time origin of the samples and the laps: ISO 8601 with an offset."
         },
+        "clock": { "enum": ["gps", "network", "device", "manual"], "description": "Clock start was taken from." },
         "driver": { "type": "string" },
         "vehicle": { "type": "string" },
         "device": {
@@ -68,7 +99,22 @@
       "properties": {
         "code": { "type": "string", "description": "Short identifier, e.g. the LapViz circuit code." },
         "name": { "type": "string" },
-        "countryCode": { "type": "string", "pattern": "^[A-Za-z]{2}$" }
+        "countryCode": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+        "type": { "enum": ["closed", "open"], "description": "closed: the first line starts and ends each lap; open: the last line ends the lap." },
+        "lines": {
+          "type": "array",
+          "description": "Timing lines in order: start (and finish of a closed circuit), sectors, finish of an open circuit.",
+          "items": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/point" } }
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "description": "WGS 84 decimal degrees.",
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
       }
     },
     "setup": {
@@ -93,22 +139,28 @@
       "properties": {
         "name": { "type": "string", "minLength": 1, "description": "Unique in the file, case insensitive." },
         "unit": { "type": "string" },
-        "type": { "enum": ["float32", "float64"], "default": "float64" },
-        "description": { "type": "string" }
+        "type": { "enum": ["float64", "float32", "int8", "uint8", "int16", "uint16", "int32"], "default": "float64", "description": "Integer types: version 3." },
+        "scale": { "type": "number", "exclusiveMinimum": 0, "default": 1, "description": "Integer types: value = integer * scale + offset." },
+        "offset": { "type": "number", "default": 0 },
+        "description": { "type": "string" },
+        "rate": { "type": "number", "exclusiveMinimum": 0, "description": "Rate in Hz at which the logger measured the channel." },
+        "origin": { "type": "string", "description": "gps, imu, ecu, obd, analog, computed..." },
+        "interpolation": { "enum": ["linear", "step"], "default": "linear" }
       }
     },
     "samples": {
       "type": "object",
       "required": ["file", "encoding"],
       "properties": {
-        "file": { "enum": ["samples.bin", "samples.csv"] },
+        "file": { "type": "string", "minLength": 1, "description": "Archive entry: samples/<group>.bin or .csv (version 2: samples.bin or samples.csv)." },
         "encoding": { "enum": ["binary", "csv"] },
         "count": { "type": "integer", "minimum": 0 },
-        "byteShuffle": { "type": "boolean", "default": false }
+        "byteShuffle": { "type": "boolean", "default": false },
+        "sha256": { "type": "string", "pattern": "^[0-9A-Fa-f]{64}$", "description": "SHA-256 of the content of the entry, uncompressed." }
       },
       "if": { "properties": { "encoding": { "const": "binary" } } },
-      "then": { "required": ["count"], "properties": { "file": { "const": "samples.bin" } } },
-      "else": { "properties": { "file": { "const": "samples.csv" } } }
+      "then": { "required": ["count"], "properties": { "file": { "pattern": "\\.bin$" } } },
+      "else": { "properties": { "file": { "pattern": "\\.csv$" } } }
     },
     "timingSource": {
       "type": "object",
@@ -116,6 +168,7 @@
       "properties": {
         "source": { "type": "string" },
         "device": { "type": "boolean", "default": false },
+        "declared": { "type": "boolean", "default": false, "description": "The laps were typed in or read from a document, not measured." },
         "circuit": { "$ref": "#/$defs/circuit" },
         "laps": { "type": "array", "items": { "$ref": "#/$defs/lap" } }
       }
@@ -127,7 +180,19 @@
         "number": { "type": "integer", "minimum": 0, "description": "0 is the out lap." },
         "start": { "type": "number", "description": "Seconds from session.start to the crossing that started the lap." },
         "duration": { "type": "number", "exclusiveMinimum": 0, "description": "Lap time in seconds; absent for an incomplete lap." },
-        "sectors": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 } }
+        "sectors": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 } },
+        "flags": { "type": "array", "description": "pitOut, pitIn, invalid, neutralized; readers ignore unknown flags.", "items": { "type": "string" } },
+        "driver": { "type": "string", "description": "Driver of the lap when it is not session.driver." }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["time", "type"],
+      "properties": {
+        "time": { "type": "number", "description": "Seconds from session.start." },
+        "type": { "type": "string", "minLength": 1, "description": "marker, beacon, pitIn, pitOut, flag..." },
+        "label": { "type": "string" },
+        "source": { "type": "string" }
       }
     }
   }

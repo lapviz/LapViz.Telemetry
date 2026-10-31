@@ -12,6 +12,21 @@ public enum LapVizValueType
 
     /// <summary>IEEE 754 single precision (4 bytes).</summary>
     Float32,
+
+    /// <summary>Signed 8-bit integer, times <see cref="LapVizChannel.Scale"/> plus <see cref="LapVizChannel.Offset"/> (version 3).</summary>
+    Int8,
+
+    /// <summary>Unsigned 8-bit integer: a gear, a state (version 3).</summary>
+    UInt8,
+
+    /// <summary>Signed 16-bit integer (version 3).</summary>
+    Int16,
+
+    /// <summary>Unsigned 16-bit integer: an RPM (version 3).</summary>
+    UInt16,
+
+    /// <summary>Signed 32-bit integer (version 3).</summary>
+    Int32,
 }
 
 /// <summary>How the samples are stored in the archive.</summary>
@@ -22,6 +37,48 @@ public enum LapVizSampleEncoding
 
     /// <summary><c>samples.csv</c>: one line per sample, can be written while recording.</summary>
     Csv,
+}
+
+/// <summary>How a reader goes from one value of a channel to the next.</summary>
+public enum LapVizInterpolation
+{
+    /// <summary>A continuous quantity (speed, temperature): the values between two samples are interpolated. The default.</summary>
+    Linear,
+
+    /// <summary>A discrete quantity (gear, state): a value holds until the next one.</summary>
+    Step,
+}
+
+/// <summary>Conventional values of <see cref="LapVizSessionInfo.Clock"/>.</summary>
+public static class LapVizClock
+{
+    /// <summary>Time of the GPS satellites: exact to the millisecond.</summary>
+    public const string Gps = "gps";
+
+    /// <summary>Clock synchronized over a network (a phone): exact to the second.</summary>
+    public const string Network = "network";
+
+    /// <summary>Clock of the logger, set by hand or never: may be off by minutes, or by years.</summary>
+    public const string Device = "device";
+
+    /// <summary>Typed by a person (a session read from a results sheet).</summary>
+    public const string Manual = "manual";
+}
+
+/// <summary>Conventional values of <see cref="LapVizLap.Flags"/>.</summary>
+public static class LapVizLapFlags
+{
+    /// <summary>The lap started in the pit lane.</summary>
+    public const string PitOut = "pitOut";
+
+    /// <summary>The lap ended in the pit lane.</summary>
+    public const string PitIn = "pitIn";
+
+    /// <summary>The lap does not count (track limits, penalty): never a best lap.</summary>
+    public const string Invalid = "invalid";
+
+    /// <summary>The lap was driven under a yellow flag, a safety car or a red flag.</summary>
+    public const string Neutralized = "neutralized";
 }
 
 /// <summary>Software that wrote a LapViz file.</summary>
@@ -54,6 +111,17 @@ public sealed class LapVizCircuit
 
     /// <summary>ISO 3166-1 alpha-2 country code.</summary>
     public string? CountryCode { get; set; }
+
+    /// <summary>Closed (a loop: the first line starts and ends the lap) or open (the last line ends the lap); null: unknown.</summary>
+    public CircuitType? Type { get; set; }
+
+    /// <summary>
+    /// The timing lines, in order: the start line (also the finish line of a closed circuit), then the sector lines, then
+    /// the finish line of an open circuit. Empty when unknown.
+    /// </summary>
+    public IList<CircuitGeoLine> Lines { get; set; } = new List<CircuitGeoLine>();
+
+    internal bool IsEmpty => Code == null && Name == null && CountryCode == null && Type == null && (Lines == null || Lines.Count == 0);
 }
 
 /// <summary>Description of the session.</summary>
@@ -61,6 +129,9 @@ public sealed class LapVizSessionInfo
 {
     /// <summary>Time origin of the samples and of the laps.</summary>
     public DateTimeOffset Start { get; set; }
+
+    /// <summary>Clock <see cref="Start"/> was taken from (<see cref="LapVizClock"/>); null: unknown.</summary>
+    public string? Clock { get; set; }
 
     public string? Driver { get; set; }
 
@@ -107,7 +178,25 @@ public sealed class LapVizChannel
     /// <summary>Encoding of the values in the binary samples.</summary>
     public LapVizValueType Type { get; set; }
 
+    /// <summary>Integer types: the value is the stored integer times the scale, plus <see cref="Offset"/>. Strictly positive.</summary>
+    public double Scale { get; set; } = 1;
+
+    /// <summary>Integer types: added to the stored integer times <see cref="Scale"/>.</summary>
+    public double Offset { get; set; }
+
+    /// <summary>The values are stored as integers (version 3).</summary>
+    public bool IsInteger => Type != LapVizValueType.Float32 && Type != LapVizValueType.Float64;
+
     public string? Description { get; set; }
+
+    /// <summary>Rate in Hz at which the logger measured the channel, which may differ from the rate of the samples; null: unknown.</summary>
+    public double? Rate { get; set; }
+
+    /// <summary>What measured the channel: "gps", "imu", "ecu", "obd", "analog", "computed"...; null: unknown.</summary>
+    public string? Origin { get; set; }
+
+    /// <summary>How to read the values between two samples.</summary>
+    public LapVizInterpolation Interpolation { get; set; }
 
     /// <inheritdoc/>
     public override string ToString() => Unit == null ? Name : Name + " (" + Unit + ")";
@@ -131,6 +220,18 @@ public sealed class LapVizLap
     /// <summary>Sector times in seconds, in order (empty without sectors).</summary>
     public IList<double> Sectors { get; set; } = new List<double>();
 
+    /// <summary>Status of the lap (<see cref="LapVizLapFlags"/>; unknown values are kept).</summary>
+    public IList<string> Flags { get; set; } = new List<string>();
+
+    /// <summary>Driver of the lap when it is not the driver of the session (a change of driver in an endurance race).</summary>
+    public string? Driver { get; set; }
+
+    /// <summary>The lap may be a best lap: it is complete and not <see cref="LapVizLapFlags.Invalid"/>.</summary>
+    public bool IsValid => IsComplete && !HasFlag(LapVizLapFlags.Invalid);
+
+    /// <summary>The lap has the flag <paramref name="flag"/> (case sensitive, as in the specification).</summary>
+    public bool HasFlag(string flag) => Flags != null && Flags.Contains(flag);
+
     /// <inheritdoc/>
     public override string ToString() => "Lap " + Number + ": " + (Duration.HasValue ? Duration.Value.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + " s" : "incomplete");
 }
@@ -144,10 +245,32 @@ public sealed class LapVizTimingSource
     /// <summary>True when the logger of the session measured these laps.</summary>
     public bool IsDevice { get; set; }
 
+    /// <summary>The laps were not measured but typed in or read from a document (a results sheet).</summary>
+    public bool IsDeclared { get; set; }
+
     public LapVizCircuit? Circuit { get; set; }
 
     /// <summary>The laps, ordered by start.</summary>
     public IList<LapVizLap> Laps { get; set; } = new List<LapVizLap>();
+}
+
+/// <summary>Something that happened at an instant of the session: a marker of the driver, a beacon, a flag...</summary>
+public sealed class LapVizEvent
+{
+    /// <summary>Seconds from the start of the session.</summary>
+    public double Time { get; set; }
+
+    /// <summary>Type: "marker", "beacon", "pitIn", "pitOut", "flag"... (unknown types are kept).</summary>
+    public string Type { get; set; } = string.Empty;
+
+    /// <summary>Free text: the colour of a flag, the name of a marker.</summary>
+    public string? Label { get; set; }
+
+    /// <summary>What recorded the event (the name of a timing source, "driver"...).</summary>
+    public string? Source { get; set; }
+
+    /// <inheritdoc/>
+    public override string ToString() => Type + " at " + Time.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + " s" + (Label == null ? string.Empty : ": " + Label);
 }
 
 /// <summary>Options of <see cref="LapVizFile.Write(System.IO.Stream, LapVizWriteOptions)"/>.</summary>
@@ -166,4 +289,7 @@ public sealed class LapVizWriteOptions
 
     /// <summary>Indented manifest (readable by a human).</summary>
     public bool IndentManifest { get; set; } = true;
+
+    /// <summary>Writes the SHA-256 of the samples in the manifest, so that a reader detects a damaged file.</summary>
+    public bool Checksum { get; set; } = true;
 }
