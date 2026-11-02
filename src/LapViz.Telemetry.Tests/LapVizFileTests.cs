@@ -170,6 +170,76 @@ public class LapVizFileTests
         Assert.Equal(1.25, file.PreferredTiming!.Laps[0].Duration);
     }
 
+    [Fact]
+    public void ValuesThatAreNotFiniteInCsvAreMissing()
+    {
+        // Lua, C and Python loggers print infinities and NaN this way.
+        const string manifest = """
+            {
+              "version": 2,
+              "format": "lapviz",
+              "session": { "start": "2026-11-02T17:41:46Z" },
+              "channels": [ { "name": "Max", "type": "float32" }, { "name": "Min" } ],
+              "samples": { "file": "samples.csv", "encoding": "csv" }
+            }
+            """;
+        const string csv = "time,Max,Min\n0,-inf,inf\n0.01,-INF,+Infinity\n0.02,nan,-nan\n0.03,NaN,-Infinity\n0.04,12.5,-3\n";
+
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            Write(zip, "samples.csv", csv);
+            Write(zip, "lapviz.json", manifest);
+        }
+
+        stream.Position = 0;
+        var file = LapVizFile.Read(stream);
+
+        Assert.True(file.TryGetValues("Max", out var max));
+        Assert.True(file.TryGetValues("Min", out var min));
+        Assert.All(max.Take(4).Concat(min.Take(4)), value => Assert.True(double.IsNaN(value)));
+        Assert.Equal(12.5, max[4]);
+        Assert.Equal(-3, min[4]);
+    }
+
+    [Fact]
+    public void ValuesThatAreNotFiniteAreWrittenAsEmptyCsvFields()
+    {
+        var file = new LapVizFile(Start);
+        file.SetTime(new long[] { 0, 100_000, 200_000 });
+        file.AddChannel(new LapVizChannel("A"), new[] { double.PositiveInfinity, double.NegativeInfinity, 1.5 });
+
+        var bytes = file.ToBytes(new LapVizWriteOptions { Encoding = LapVizSampleEncoding.Csv });
+        using (var zip = new ZipArchive(new MemoryStream(bytes)))
+        using (var reader = new StreamReader(zip.GetEntry("samples.csv")!.Open()))
+            Assert.Equal(new[] { "time,A", "0,", "0.1,", "0.2,1.5" }, reader.ReadToEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries));
+
+        Assert.True(LapVizFile.Read(new MemoryStream(bytes)).TryGetValues("A", out var values));
+        Assert.True(double.IsNaN(values[0]));
+        Assert.True(double.IsNaN(values[1]));
+        Assert.Equal(1.5, values[2]);
+    }
+
+    [Theory]
+    [InlineData("1e")]
+    [InlineData("infx")]
+    [InlineData("--inf")]
+    public void AnInvalidCsvValueIsRejected(string value)
+    {
+        const string manifest = """{ "version": 2, "format": "lapviz", "session": { "start": "2026-11-02T17:41:46Z" }, "channels": [ { "name": "A" } ], "samples": { "file": "samples.csv", "encoding": "csv" } }""";
+
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            Write(zip, "samples.csv", "time,A\n0," + value + "\n");
+            Write(zip, "lapviz.json", manifest);
+        }
+
+        stream.Position = 0;
+        var exception = Assert.ThrowsAny<Exception>(() => LapVizFile.Read(stream));
+        Assert.Contains("invalid value for A", exception.ToString(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("""{ "format": "lapviz", "version": 4, "session": { "start": "2026-01-01T00:00:00Z" }, "groups": [] }""", "version 4")]
     [InlineData("""{ "format": "lapviz", "version": 3, "session": { "start": "2026-01-01T00:00:00Z" }, "channels": [] }""", "missing groups")]
