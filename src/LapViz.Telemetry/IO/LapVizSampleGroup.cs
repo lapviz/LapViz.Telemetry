@@ -380,7 +380,7 @@ public sealed class LapVizSampleGroup
                 {
                     line.Append(',');
                     var value = _values[k][i];
-                    if (!double.IsNaN(value))
+                    if (IsFinite(value))
                         line.Append(FormatValue(value, _channels[k].Type));
                 }
 
@@ -418,9 +418,7 @@ public sealed class LapVizSampleGroup
                 for (int k = 0; k < columns.Count; k++)
                 {
                     var field = k + 1 < fields.Count ? fields[k + 1] : string.Empty;
-                    columns[k].Add(field.Length == 0
-                        ? double.NaN
-                        : double.TryParse(field, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : throw new InvalidDataException("CSV line " + lineNumber + ": invalid value for " + _channels[k].Name));
+                    columns[k].Add(ParseCsvValue(field) ?? throw new InvalidDataException("CSV line " + lineNumber + ": invalid value for " + _channels[k].Name));
                 }
             }
 
@@ -449,6 +447,25 @@ public sealed class LapVizSampleGroup
         var fraction = absolute % 1_000_000;
         return fraction == 0 ? sign + text : sign + text + "." + fraction.ToString("000000", CultureInfo.InvariantCulture).TrimEnd('0');
     }
+
+    /// <summary>
+    /// The value of a CSV field: NaN when it is missing (empty, or a value that is not finite: Lua, C, Python and
+    /// .NET loggers write <c>inf</c>, <c>-inf</c>, <c>nan</c>, <c>Infinity</c>...), null when it is not a number.
+    /// </summary>
+    private static double? ParseCsvValue(string field)
+    {
+        if (field.Length == 0)
+            return double.NaN;
+        if (double.TryParse(field, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            return IsFinite(value) ? value : double.NaN;
+
+        var word = field[0] == '+' || field[0] == '-' ? field.Substring(1) : field;
+        return word.Equals("inf", StringComparison.OrdinalIgnoreCase) || word.Equals("infinity", StringComparison.OrdinalIgnoreCase) || word.Equals("nan", StringComparison.OrdinalIgnoreCase)
+            ? double.NaN
+            : null;
+    }
+
+    private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
 
     private static string FormatValue(double value, LapVizValueType type) =>
         type == LapVizValueType.Float32

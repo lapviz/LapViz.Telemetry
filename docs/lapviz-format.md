@@ -340,7 +340,9 @@ or a line end between double quotes.
 * Each following line is a sample: the time in seconds since `session.start` (decimal point, up to 6 decimals),
   then the value of each channel, decimal point, no thousands separator, scientific notation allowed. The values
   are the values, never the stored integers: `type`, `scale` and `offset` do not apply.
-* An empty field is a missing value.
+* An empty field is a missing value. Writers MUST write a value that is not finite (an infinity, a NaN) as an empty
+  field. Readers SHOULD read `inf`, `infinity` and `nan`, in any case and with an optional sign, as missing values,
+  since many loggers print them this way.
 * Times are strictly increasing.
 
 A logger can append lines to each group while it records and write `lapviz.json` (with the laps) when the session
@@ -436,6 +438,7 @@ Readers SHOULD keep reading version 1; writers MUST NOT write it.
 Compatible additions do not change the version: a reader written before them ignores the new members, as it ignores
 every unknown member, and reads the rest of the file as before.
 
+* **2026-11-02**: values that are not finite in CSV samples (4).
 * **2026-10-31**: version 3: groups of samples with their own time (2.3), integer types with a scale and an offset
   (3.1). Version 2 is version 3 with one group (6.1).
 * **2026-10-30**: `session.clock`; the `type` and `lines` of a circuit (2.1.2); the `rate`, `origin` and `interpolation`
