@@ -11,7 +11,7 @@ public class EmbeddedResourcesTests
     {
         var circuits = new StaticCircuitService().InitializeCircuits();
 
-        Assert.Equal(194, circuits.Count);
+        Assert.Equal(196, circuits.Count);
         Assert.All(circuits, c =>
         {
             Assert.False(string.IsNullOrEmpty(c.Code));
@@ -20,6 +20,11 @@ public class EmbeddedResourcesTests
             Assert.NotNull(c.BoundingBox);
             Assert.NotEmpty(c.Segments);
         });
+
+        // On its timing loops (transponders): the sectors of the official results
+        var ostricourt = circuits.Single(c => c.Code == "ostricourt");
+        Assert.Equal(3, ostricourt.Segments.Count);
+        Assert.Equal(50.46833, ostricourt.Segments[0].Boundary.Start.Latitude);
 
         var mettet = circuits.Single(c => c.Code == "mettet");
         Assert.Equal("Circuit Jules Tacheny Mettet", mettet.Name);
