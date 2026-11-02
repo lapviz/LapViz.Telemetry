@@ -186,7 +186,15 @@ def _read_csv(group, channels, data):
         raise LapVizFormatError(f"CSV header {header} does not match the channels {names}")
     group.time = [float(row[0]) for row in rows]
     for index, name in enumerate(names, start=1):
-        group.channels[name] = [float(row[index]) if row[index] != "" else None for row in rows]
+        group.channels[name] = [_csv_value(row[index]) for row in rows]
+
+
+def _csv_value(field):
+    # Spec 4: an empty field is a missing value, and so is inf, -inf or nan (as Lua, C and Python print them)
+    if field == "":
+        return None
+    value = float(field)
+    return value if math.isfinite(value) else None
 
 
 def _format_seconds(value):
