@@ -417,6 +417,47 @@ public class PassingTimingSessionTests
         }
 
         [Fact]
+        public void A_Checkered_Flag_At_The_Instant_Of_A_Passing_Counts_The_Same_Whichever_Arrives_First()
+        {
+            var flagFirst = Practice();
+            Feed(flagFirst, P("A", 0));
+            flagFirst.Checkered(At(50));
+            flagFirst.AddPassing(P("A", 50));
+            var lateFlagFirst = flagFirst.AddPassing(P("A", 100));
+
+            var passingFirst = Practice();
+            Feed(passingFirst, P("A", 0), P("A", 50));
+            passingFirst.Checkered(At(50));
+            var latePassingFirst = passingFirst.AddPassing(P("A", 100));
+
+            Assert.True(passingFirst.GetTiming("A")!.Finished);
+            Assert.Equal(lateFlagFirst.Rejection, latePassingFirst.Rejection);
+            Assert.Equal(PassingRejection.AfterFinish, latePassingFirst.Rejection);
+            Assert.Equal(Snapshot(flagFirst), Snapshot(passingFirst));
+
+            var before = Snapshot(passingFirst);
+            passingFirst.Recompute();
+            Assert.Equal(before, Snapshot(passingFirst));
+        }
+
+        [Fact]
+        public void A_Start_At_The_Instant_Of_A_Passing_Counts_It_Whichever_Arrives_First()
+        {
+            var startFirst = Race(laps: 10, start: TimingStartMode.FirstCrossing);
+            startFirst.Start(At(0));
+            Feed(startFirst, P("A", 0), P("A", 52));
+
+            var passingFirst = Race(laps: 10, start: TimingStartMode.FirstCrossing);
+            passingFirst.AddPassing(P("A", 0));
+            passingFirst.Start(At(0));
+            passingFirst.AddPassing(P("A", 52));
+
+            Assert.Equal(At(0), passingFirst.StartedAt); // The crossing at the instant of the start opens the race
+            Assert.Equal(1, passingFirst.GetTiming("A")!.Laps);
+            Assert.Equal(Snapshot(startFirst), Snapshot(passingFirst));
+        }
+
+        [Fact]
         public void An_Older_Passing_Recomputes_The_Session()
         {
             var session = Practice();
