@@ -50,6 +50,11 @@ Open your `.xrk`, `.vbo`, `.rcz` files in the browser at **[lapviz.com](https://
   [example files](docs/examples) and a [reader in plain Python](tools/python/lvz.py); `LapVizFile` reads and writes it,
   and the readers of the other formats convert to it (`LapVizFile.FromDeviceSessionData`).
 
+* 🗺 **Built-in circuits**  
+  More than 200 circuits with their start/finish and sector lines, used to time GPS sessions. They come from
+  [lapviz.com](https://lapviz.com/circuits) and are updated every week. Missing a circuit, or found a wrong line?
+  [Propose it on lapviz.com](https://lapviz.com/circuitsubmit), no account needed (see [CONTRIBUTING.md](CONTRIBUTING.md#circuits)).
+
 * 🌐 **Open live timing client**  
   Built-in SignalR client for [OpenLiveTiming.com](https://openlivetiming.com), serving as both a **ready-to-use client** and **reference integration** for laptimer apps or timekeeping systems. We also plan to release our own iOS & Android Laptimer (primarily used for tests) as open source, to encourage integration with existing laptimers, whether hardware-based or app-based.
 

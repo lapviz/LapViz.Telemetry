@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+#
+# Every week, reads the circuits of lapviz.com (public API, no key) and opens a pull request against develop
+# when the built-in list changed: new circuits and corrections, reviewed by a maintainer before the merge.
+#
+# No secret: the job only uses the temporary GITHUB_TOKEN of the run. A pull request opened with that token does
+# not start the CI by itself, so the job starts it on the branch (workflow_dispatch) and its checks show on the PR.
+# Needs "Allow GitHub Actions to create and approve pull requests" in Settings > Actions > General.
+# Scheduled runs use the copy of this file on the default branch.
+name: Circuits sync
+
+on:
+  schedule:
+    - cron: "23 4 * * 1" # Mondays, 04:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: circuits-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Update circuits.json
+    if: github.repository == 'lapviz/LapViz.Telemetry' # Not in forks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # Push the sync branch
+      pull-requests: write # Open or update its pull request
+      actions: write # Start the CI on the branch
+    env:
+      BRANCH: chore/circuits-sync
+      BASE: develop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.BASE }}
+
+      - name: Read the circuits of lapviz.com
+        run: python3 tools/update_circuits.py --report "$RUNNER_TEMP/report.md"
+
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "circuits.json is up to date"
+            exit 0
+          fi
+
+          {
+            cat "$RUNNER_TEMP/report.md"
+            echo
+            echo "Opened by the weekly [Circuits sync]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/circuits-sync.yaml) workflow. The branch is rewritten on each run: do not push fixes to it, correct the circuit on lapviz.com instead."
+          } > "$RUNNER_TEMP/body.md"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit --quiet -am "Circuits: weekly update from lapviz.com"
+          git push --force origin "$BRANCH"
+
+          number=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            gh pr create --base "$BASE" --head "$BRANCH" --title "Circuits: weekly update from lapviz.com" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$number" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+            echo "Pull request #$number updated"
+          fi
+
+          gh workflow run ci.yaml --ref "$BRANCH"
