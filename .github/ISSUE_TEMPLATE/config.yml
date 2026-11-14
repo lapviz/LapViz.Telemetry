@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Propose a circuit or a correction
+    url: https://lapviz.com/circuitsubmit
+    about: The built-in circuits come from lapviz.com. Propose a new circuit or a correction there, no account needed.
