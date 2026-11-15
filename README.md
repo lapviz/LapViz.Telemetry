@@ -32,6 +32,13 @@ Open your `.xrk`, `.vbo`, `.rcz` files in the browser at **[lapviz.com](https://
 * ⏱ **Timing utilities**  
   Work with laps, sectors, positions, timestamps, and live updates.
 
+* 🕒 **Several sessions on one clock**  
+  `SessionTimeline` puts the sessions of the drivers of one run (several lap timers or data loggers on the same circuit
+  at the same time) on one clock: it groups the sessions of a run (`GroupRuns`), corrects device clocks off by whole days,
+  hours or half hours (local time written as UTC, a missing date) or by a manual offset, ranks them at each finish line
+  crossing with `PassingTimingSession` (positions, laps, best laps, gaps), and writes the run as a race timeline
+  (`format: "lapviz-race"`, read by the LapViz 3D replay).
+
 * 🏁 **Timing from passings**  
   `PassingTimingSession` times a session from the passings of transponders (decoder loops), LapViz devices
   or line crossings: laps and sectors, minimum and maximum lap time, duplicates and missed loops, start signal or first crossing,
@@ -145,6 +152,26 @@ session.Timing.Add(laps);
 
 using (var stream = File.Create("session.lvz"))
     session.Write(stream);
+```
+
+### Put the sessions of one run on one clock
+
+```csharp
+using System;
+using System.Linq;
+using LapViz.Telemetry.Timing;
+
+// One TimelineSession per driver: its laps (SessionDataEvent of type Lap: end time and lap time)
+var runs = SessionTimeline.GroupRuns(sessions, TimeSpan.FromMinutes(10));
+var timeline = SessionTimeline.Build(runs[0]);   // practice rules by default (best lap)
+
+foreach (var crossing in timeline.Crossings.Where(c => c.Lap > 0))
+    Console.WriteLine($"{crossing.Time:HH:mm:ss} {crossing.Key} lap {crossing.Lap} P{crossing.Position}");
+
+// Device clocks that were corrected, and the run as a race timeline for a 3D replay
+foreach (var (key, offset) in timeline.Offsets.Where(o => o.Value != TimeSpan.Zero))
+    Console.WriteLine($"{key}: clock moved by {offset}");
+var json = timeline.ToRaceTimelineJson("Club day", "Senior", "Practice 1", "Genk", "genk");
 ```
 
 The format itself is described in [docs/lapviz-format.md](docs/lapviz-format.md). For a complete application (a lap timer
