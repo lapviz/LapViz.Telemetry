@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Updates src/LapViz.Telemetry/Resources/circuits.json from the public API of lapviz.com.
 
-    python3 tools/update_circuits.py
+    python3 tools/update_circuits.py [--report report.md]
+
+--report writes what changed as Markdown (the weekly workflow puts it in its pull request).
 
 Rules:
 - every circuit of lapviz.com with usable coordinates, with its id, name, location, country and weather link;
@@ -16,6 +18,7 @@ Rules:
   package after a correction on the site.
 """
 
+import argparse
 import json
 import math
 import string
@@ -91,11 +94,17 @@ def problems(box, segments):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Updates circuits.json from the public API of lapviz.com.")
+    parser.add_argument("--report", type=Path, help="writes what changed to this Markdown file")
+    args = parser.parse_args()
+
     current = json.loads(FILE.read_text(encoding="utf-8-sig"))
     by_code = {c["code"].lower(): c for c in current}
     configurations, failed = fetch()
+    if not configurations:  # lapviz.com down or its API changed: nothing to compare with
+        raise SystemExit("No circuit read from lapviz.com")
 
-    updated, report = {}, []
+    updated, report, added = {}, [], []
     for c in sorted(configurations, key=lambda x: x["id"]):
         code = c["code"].lower()
         box = [point(c["boundingBox"]["start"]), point(c["boundingBox"]["end"])]
@@ -110,6 +119,8 @@ def main():
             continue
         elif old and old["segments"] != segments:
             report.append(f"{code}: timing lines updated")
+        elif not old:
+            added.append(f"{c['name']} (`{code}`, {c.get('location') or '?'}, {c.get('countryCode') or '?'})")
 
         entry = {"id": c["id"], "name": c["name"], "location": c.get("location"), "code": c["code"],
                  "country": c.get("countryCode"), "useDirection": True, "zoom": c["zoom"],
@@ -128,8 +139,18 @@ def main():
     lines = [json.dumps(updated[code], ensure_ascii=False, separators=(",", ":")) for code in order]
     FILE.write_bytes(("[\r\n" + ",\r\n".join(lines) + "\r\n]\r\n").encode("utf-8"))
 
-    print(f"{len(lines)} circuits ({len(lines) - len(by_code)} new), API failures: {failed or 'none'}")
+    summary = f"{len(lines)} circuits ({len(lines) - len(by_code)} new), API failures: {', '.join(failed) or 'none'}"
+    print(summary)
     print("\n".join(report))
+
+    if args.report:
+        text = ["Circuits read from the public API of [lapviz.com](https://lapviz.com/circuits) by `tools/update_circuits.py`.", "",
+                summary, ""]
+        if added:
+            text += ["### New circuits", ""] + [f"- {name}" for name in added] + [""]
+        if report:
+            text += ["### Notes", ""] + [f"- {line}" for line in report] + [""]
+        args.report.write_text("\n".join(text), encoding="utf-8")
 
 
 if __name__ == "__main__":

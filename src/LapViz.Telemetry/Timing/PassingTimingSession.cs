@@ -44,6 +44,7 @@ public sealed class PassingTimingSession
 
     // Derived state, recomputed by Rebuild
     private DateTimeOffset? _lastProcessed;
+    private DateTimeOffset? _lastPassingAt;
     private DateTimeOffset? _startCommandAt;
     private DateTimeOffset? _firstStartCrossing;
     private DateTimeOffset? _checkeredAt;
@@ -168,6 +169,7 @@ public sealed class PassingTimingSession
             var events = new List<SessionDataEvent>();
             Process(passing, events);
             _lastProcessed = passing.Timestamp;
+            _lastPassingAt = passing.Timestamp;
             return TimingUpdate.Of(events, RejectionOf(passing.Id), _flags.Count != flags);
         }
     }
@@ -426,7 +428,10 @@ public sealed class PassingTimingSession
         InsertSorted(_commands, command, CompareCommands);
         var flags = _flags.Count;
 
-        if (replaced || (_lastProcessed.HasValue && command.At < _lastProcessed.Value))
+        // A command at the same instant as a passing already counted applies before it, as Rebuild orders them: the
+        // session is computed again, so the result does not depend on which of the two arrived first
+        if (replaced || (_lastProcessed.HasValue && command.At < _lastProcessed.Value)
+            || (_lastPassingAt.HasValue && command.At <= _lastPassingAt.Value))
         {
             Rebuild();
             return TimingUpdate.OfRebuild(null, _flags.Count != flags);
@@ -440,6 +445,7 @@ public sealed class PassingTimingSession
     private void Rebuild()
     {
         _lastProcessed = null;
+        _lastPassingAt = null;
         _startCommandAt = null;
         _firstStartCrossing = null;
         _checkeredAt = null;
@@ -468,6 +474,7 @@ public sealed class PassingTimingSession
             }
 
             _lastProcessed = passing.Timestamp;
+            _lastPassingAt = passing.Timestamp;
         }
 
         while (c < _commands.Count)

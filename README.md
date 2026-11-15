@@ -3,9 +3,12 @@
 _[![NuGet Version](https://img.shields.io/nuget/v/LapViz.Telemetry.svg?style=flat&label=NuGet%3A%20LapViz.Telemetry)](https://www.nuget.org/packages/LapViz.Telemetry/)_  
 
 A .NET library that provides the core building blocks for **motorsport telemetry and timing**.  
-It powers all LapViz applications (Laptimer, Stopwatch, and our forthcoming web platforms) and includes a reference client for [OpenLiveTiming.com](https://openlivetiming.com), our **open live timing platform**.
+It powers the LapViz applications (the lap timer app, Stopwatch and [lapviz.com](https://lapviz.com)) and includes a reference client for [OpenLiveTiming.com](https://openlivetiming.com), our **open live timing platform**.
 
 Overview for developers, API and the other LapViz apps: **[lapviz.com/developers](https://lapviz.com/developers)**.
+
+Open your `.xrk`, `.vbo`, `.rcz` files in the browser at **[lapviz.com](https://lapviz.com)**: no install, laps, channels and a 3D replay
+([all supported formats](https://lapviz.com/formats)).
 
 ---
 
@@ -29,6 +32,13 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
 * ⏱ **Timing utilities**  
   Work with laps, sectors, positions, timestamps, and live updates.
 
+* 🕒 **Several sessions on one clock**  
+  `SessionTimeline` puts the sessions of the drivers of one run (several lap timers or data loggers on the same circuit
+  at the same time) on one clock: it groups the sessions of a run (`GroupRuns`), corrects device clocks off by whole days,
+  hours or half hours (local time written as UTC, a missing date) or by a manual offset, ranks them at each finish line
+  crossing with `PassingTimingSession` (positions, laps, best laps, gaps), and writes the run as a race timeline
+  (`format: "lapviz-race"`, read by the LapViz 3D replay).
+
 * 🏁 **Timing from passings**  
   `PassingTimingSession` times a session from the passings of transponders (decoder loops), LapViz devices
   or line crossings: laps and sectors, minimum and maximum lap time, duplicates and missed loops, start signal or first crossing,
@@ -46,6 +56,11 @@ Overview for developers, API and the other LapViz apps: **[lapviz.com/developers
   [docs/lapviz-format.md](docs/lapviz-format.md), with a [JSON Schema](docs/lapviz-format.schema.json) of its manifest,
   [example files](docs/examples) and a [reader in plain Python](tools/python/lvz.py); `LapVizFile` reads and writes it,
   and the readers of the other formats convert to it (`LapVizFile.FromDeviceSessionData`).
+
+* 🗺 **Built-in circuits**  
+  More than 200 circuits with their start/finish and sector lines, used to time GPS sessions. They come from
+  [lapviz.com](https://lapviz.com/circuits) and are updated every week. Missing a circuit, or found a wrong line?
+  [Propose it on lapviz.com](https://lapviz.com/circuitsubmit), no account needed (see [CONTRIBUTING.md](CONTRIBUTING.md#circuits)).
 
 * 🌐 **Open live timing client**  
   Built-in SignalR client for [OpenLiveTiming.com](https://openlivetiming.com), serving as both a **ready-to-use client** and **reference integration** for laptimer apps or timekeeping systems. We also plan to release our own iOS & Android Laptimer (primarily used for tests) as open source, to encourage integration with existing laptimers, whether hardware-based or app-based.
@@ -66,6 +81,101 @@ dotnet add package LapViz.Telemetry
 
 Detailed documentation and API references are available on the project website:  
 👉 [https://lapviz.com/swagger/index.html](https://lapviz.com/swagger/index.html)
+
+---
+
+## Examples
+
+The snippets below target the current API (`LapViz.Telemetry.IO`). The [example files](docs/examples) of the format
+are a good input to try them.
+
+### Read a session and print its laps
+
+```csharp
+using System;
+using System.Linq;
+using LapViz.Telemetry.IO;
+
+var file = LapVizFile.Read("session.lvz");
+Console.WriteLine($"{file.Session.Driver} at {file.Session.Circuit?.Name}, {file.Session.Start:yyyy-MM-dd HH:mm}");
+
+// The laps of the logger when it timed them, else those of another timing source
+var timing = file.PreferredTiming;
+if (timing != null)
+{
+    foreach (var lap in timing.Laps.Where(x => x.IsComplete))
+        Console.WriteLine($"Lap {lap.Number}: {TimeSpan.FromSeconds(lap.Duration!.Value):m\\:ss\\.fff}");
+
+    // Fastest lap, leaving out invalid laps and those that start or end in the pits
+    var best = timing.Laps
+        .Where(x => x.IsValid && !x.HasFlag(LapVizLapFlags.PitOut) && !x.HasFlag(LapVizLapFlags.PitIn))
+        .OrderBy(x => x.Duration)
+        .FirstOrDefault();
+    Console.WriteLine($"Best: {best}");
+}
+
+// Channels, by group of samples (each group has its own rate)
+foreach (var group in file.Groups)
+    Console.WriteLine($"{group.Name}: {string.Join(", ", group.Channels.Select(x => $"{x.Name} ({x.Unit})"))}");
+```
+
+With [docs/examples/binary.lvz](docs/examples/binary.lvz) it prints:
+
+```text
+Alex Example at Example oval (fictitious), 2026-09-12 10:00
+Lap 0: 0:18.000
+Lap 1: 1:01.240
+Lap 2: 1:00.115
+Best: Lap 2: 60.115 s
+main: Latitude (deg), Longitude (deg), GPS Speed (km/h), RPM (rpm), Gear ()
+```
+
+### Write a session
+
+```csharp
+using System;
+using System.IO;
+using LapViz.Telemetry.IO;
+
+var session = new LapVizFile(DateTimeOffset.Now);
+session.Session.Driver = "Alex";
+
+// Time of the samples in microseconds since the start, then one value per sample and channel
+session.SetTime(new long[] { 0, 100_000, 200_000 });
+session.AddChannel(new LapVizChannel("Speed", "km/h"), new[] { 92.4, 93.1, 93.8 });
+
+// Lap start and duration in seconds since the start of the session
+var laps = new LapVizTimingSource { Source = "My lap timer", IsDevice = true };
+laps.Laps.Add(new LapVizLap { Number = 1, Start = 0, Duration = 61.240 });
+laps.Laps.Add(new LapVizLap { Number = 2, Start = 61.240, Duration = 60.115 });
+session.Timing.Add(laps);
+
+using (var stream = File.Create("session.lvz"))
+    session.Write(stream);
+```
+
+### Put the sessions of one run on one clock
+
+```csharp
+using System;
+using System.Linq;
+using LapViz.Telemetry.Timing;
+
+// One TimelineSession per driver: its laps (SessionDataEvent of type Lap: end time and lap time)
+var runs = SessionTimeline.GroupRuns(sessions, TimeSpan.FromMinutes(10));
+var timeline = SessionTimeline.Build(runs[0]);   // practice rules by default (best lap)
+
+foreach (var crossing in timeline.Crossings.Where(c => c.Lap > 0))
+    Console.WriteLine($"{crossing.Time:HH:mm:ss} {crossing.Key} lap {crossing.Lap} P{crossing.Position}");
+
+// Device clocks that were corrected, and the run as a race timeline for a 3D replay
+foreach (var (key, offset) in timeline.Offsets.Where(o => o.Value != TimeSpan.Zero))
+    Console.WriteLine($"{key}: clock moved by {offset}");
+var json = timeline.ToRaceTimelineJson("Club day", "Senior", "Practice 1", "Genk", "genk");
+```
+
+The format itself is described in [docs/lapviz-format.md](docs/lapviz-format.md). For a complete application (a lap timer
+and a live timing client on the command line), see [samples/LapViz.Telemetry.CLI](samples/LapViz.Telemetry.CLI).
 
 ---
 
