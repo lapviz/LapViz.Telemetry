@@ -11,7 +11,8 @@ public class EmbeddedResourcesTests
     {
         var circuits = new StaticCircuitService().InitializeCircuits();
 
-        Assert.Equal(196, circuits.Count);
+        // The weekly circuits sync adds circuits from lapviz.com: a floor, not an exact count
+        Assert.True(circuits.Count >= 238, $"{circuits.Count} circuits");
         Assert.All(circuits, c =>
         {
             Assert.False(string.IsNullOrEmpty(c.Code));
