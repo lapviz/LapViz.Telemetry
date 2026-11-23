@@ -139,6 +139,17 @@ def main():
     lines = [json.dumps(updated[code], ensure_ascii=False, separators=(",", ":")) for code in order]
     FILE.write_bytes(("[\r\n" + ",\r\n".join(lines) + "\r\n]\r\n").encode("utf-8"))
 
+    names = {}
+    for code in order:
+        names.setdefault(updated[code]["name"], []).append(code)
+    for code in order:  # The tests want a place for every circuit
+        empty = [field for field in ("location", "country") if not updated[code].get(field)]
+        if empty:
+            report.append(f"{code}: no {' or '.join(empty)} on lapviz.com, fill it there (the tests fail)")
+    for name, codes in names.items():
+        if len(codes) > 1:  # The tests want one circuit per name: merge or rename them on lapviz.com before the merge
+            report.append(f"{', '.join(codes)}: same name \"{name}\", rename or merge them on lapviz.com (the tests fail)")
+
     summary = f"{len(lines)} circuits ({len(lines) - len(by_code)} new), API failures: {', '.join(failed) or 'none'}"
     print(summary)
     print("\n".join(report))
