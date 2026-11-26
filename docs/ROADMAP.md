@@ -16,7 +16,8 @@ marked "declined" with the reason, not deleted.
   `ObservableLiveTimingClient` builds its views inside the SignalR handlers, where an exception is lost.
 - [ ] **P1 · S** `TimingFormatters.FormatLapTime(119.9996 s)` prints `1:60.000` (the minutes are split before the
   rounding), and `ParseLapTime` loses a tick.
-- [ ] **P1 · M** **First lap missed** by the event generator when sector 3 is not complete.
+- [ ] **P1 · M** **First lap missed** by the detection of session events (`SessionEventDetection`) when sector 3 is
+  not complete; noted on an earlier version, to reproduce first.
 - [ ] **P3 · S** `DelimitedDataReader` dates a file that has no time column with the time of reading
   (`DateTimeOffset.Now`), so the same file gives two different sessions.
 
@@ -37,8 +38,8 @@ The data of `circuits.json` is not corrected here: it is synchronised from lapvi
 
 Debt to treat before a major version (2.0), because each item breaks the public API.
 
-- [ ] **P2 · L** **Asynchronous readers and writers**: `ITelemetryDataReader` and its writer, `ITelemetryReceiver`
-  (read as a stream like the other readers), `ITelemetrySensor` (connection handling like a live client).
+- [ ] **P2 · L** **Asynchronous readers and writers**: `ITelemetryDataReader` and `ITelemetryDataWriter`, a
+  receiver read as a stream like the other readers, `ITelemetrySensor` (connection handling like a live client).
 - [ ] **P2 · M** `TelemetryDataReaderFactory`: dependency injection with discovery by assembly (Scrutor) instead of
   MEF, keeping the compatibility checks of the plugins.
 - [ ] **P2 · M** Replace the last use of **Newtonsoft.Json** by System.Text.Json.
@@ -49,6 +50,7 @@ Debt to treat before a major version (2.0), because each item breaks the public 
 - [ ] **P2 · L** **`GeolocationSingleSessionManager`**: injectable clock (`TimeProvider`), a delay per sector,
   several crossings ordered within one step, a filter of micro-movements, optional capture of the raw telemetry in the
   session, a thread-safe snapshot.
-- [ ] **P3 · L** A simpler timing engine built on TPL Dataflow in place of `LapTimerEngine`.
+- [ ] **P3 · L** A simpler timing engine built on TPL Dataflow in place of `LapTimerService` (noted against an earlier engine: to
+  re-evaluate against the current one).
 - [ ] **P3 · XL** **Continuous recording** cut in chunks, the laps being created afterwards from the data (GPS,
   speed) and not from the time.
